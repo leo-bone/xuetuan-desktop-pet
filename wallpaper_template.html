@@ -82,6 +82,7 @@
     background:rgba(170,210,255,.16);color:#cfe4ff;font-size:15px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;transition:.2s}
   #mic.on{background:linear-gradient(135deg,#ff9a9a,#ff6b6b);color:#fff;animation:pulse 1.1s infinite}
+  #mic.hold{opacity:.42;animation:none}
   #tts.on{background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a}
   /* 语言键 / 关闭：比主按钮小一号，免得挤爆指令栏 */
   #lang,#close{width:26px;height:26px;flex:none;border:none;border-radius:50%;
@@ -525,7 +526,17 @@
   function send(){
     var t = (cmdin.value || "").trim();
     if(!t) return;
+    // 话已经说完了 → 立刻闭嘴不再听。
+    // 不然识别结果会继续往上叠加（连雪团念的话都会被算进去），
+    // 把清空了的输入框又填满，下次回车发出去的就是一坨脏句子。
+    if(micOn || document.getElementById("mic").classList.contains("hold")){
+      post({type:"micstop"});
+      micOn = false;
+      var mb2 = document.getElementById("mic");
+      if(mb2) mb2.classList.remove("on", "hold");
+    }
     cmdin.value = "";
+    micWrote = false;
     if(sent[sent.length - 1] !== t) sent.push(t);
     if(sent.length > 30) sent.shift();
     sentIdx = -1;
@@ -626,6 +637,11 @@
 
   // 麦克风
   var micOn = false;
+  // 雪团正在念话：这段时间里麦克风听见的都是它自己的声音，
+  // 识别结果一律丢弃，绝不填进输入框 —— 否则人一按回车就把猫说过的话发出去了。
+  var speakOn = false;
+  var micWrote = false;               // 上一笔输入框内容是语音填的，还是人手打的
+  cmdin.addEventListener("input", function(){ micWrote = false; });
   document.getElementById("mic").addEventListener("click", function(){
     if(micOn){ post({type:"micstop"}); return; }
     post({type:"mic"});
@@ -692,19 +708,25 @@
     else if(o.type === "chatstart"){ chatStart(o); }
     else if(o.type === "chatdelta"){ chatDelta(o); }
     else if(o.type === "chatend"){ chatEnd(o); }
-    else if(o.type === "mem"){ bubble(o.msg || "", 8000); }
-    else if(o.type === "remind"){ bubble(o.msg || "", 15000); }
+    else if(o.type === "mem"){ busyOn(false); bubble(o.msg || "", 8000); }
+    else if(o.type === "remind"){ busyOn(false); bubble(o.msg || "", 15000); }
     else if(o.type === "help"){ bubble(o.msg || "", 15000); }
     else if(o.type === "season"){
       applySeason(o.name);
       if(o.msg) bubble(o.msg);
     }
     else if(o.type === "transcript"){
+      if(speakOn) return;                 // 雪团在说话，这是回声，丢掉
       // 语音识别结果：填进输入框并聚焦，按回车就能发（不用去点鼠标）
       // 只在刚打开输入框时抢一次焦点 —— 边说边出的中间结果会持续刷新，
       // 每次都 focus 会把用户正在别处打的字打断。
       var justOpened = !cmd.classList.contains("show");
-      cmdin.value = o.text || "";
+      // 只在「框是空的」或「上一笔也是语音填的」时覆盖，别把人打的字冲掉
+      if(micWrote || !cmdin.value){
+        cmdin.value = o.text || "";
+        micWrote = true;
+      }
+
       cmd.classList.add("show");
       hint.classList.add("gone");
       if(justOpened || o.auto){ try{ cmdin.focus(); }catch(e){} }
@@ -717,10 +739,15 @@
     }
     else if(o.type === "err"){ bubble(o.msg); }
     else if(o.type === "micstate"){
-      micOn = !!o.on;
       var mb = document.getElementById("mic");
+      if(o.hold){ mb.classList.add("hold"); if(o.msg) bubble(o.msg, 2500); return; }
+      mb.classList.remove("hold");
+      micOn = !!o.on;
       if(micOn) mb.classList.add("on"); else mb.classList.remove("on");
       if(o.msg) bubble(o.msg);
+    }
+    else if(o.type === "speakstate"){
+      speakOn = !!o.on;
     }
     else if(o.type === "reststate"){
       var isScene = (WIN === "scene");

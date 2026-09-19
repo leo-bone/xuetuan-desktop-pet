@@ -68,7 +68,8 @@ def _as_dict(raw):
 # 再把 say 的基础语速调慢来抵消加速，净效果 = 音调变高、语速正常 → 奶音卡通感。
 TTS_PITCH = 1.26          # 音调倍数（>1 更尖细）
 TTS_RATE = 168            # say 基础语速（词/分）；净值 ≈ TTS_RATE * TTS_PITCH
-_tts = {"on": False, "proc": None, "voice": None}
+_tts = {"on": False, "proc": None, "voice": None,
+        "speaking": False, "last_text": "", "last_end": 0.0}
 _nap = {"on": False}                 # 猫小睡状态（😴 休息按钮）
 
 # 需要念出来的回传类型（progress/scan/transcript/chatdelta 这类不念）
@@ -172,6 +173,10 @@ def speak(text):
             with wave.open(wav2, "wb") as o:
                 o.setparams((pm.nchannels, pm.sampwidth, nr, 0, "NONE", ""))
                 o.writeframes(frames)
+            _tts["last_text"] = text
+            _mic_hold()                       # 开口前先捂住自己的耳朵
+            _tts["speaking"] = True
+            push_js(_KEEP.get("handler"), {"type": "speakstate", "on": True})
             proc = subprocess.Popen(["afplay", wav2])
             _tts["proc"] = proc
             proc.wait()
@@ -179,6 +184,13 @@ def speak(text):
         except Exception as e:
             log("TTS 失败: " + repr(e))
         finally:
+            _tts["speaking"] = False
+            _tts["last_end"] = time.time()
+            try:
+                push_js(_KEEP.get("handler"), {"type": "speakstate", "on": False})
+            except Exception:
+                pass
+            _mic_release()                    # 说完把耳朵还回来
             for f in (aiff, wav, wav2):
                 try:
                     if f and os.path.exists(f):
@@ -330,11 +342,12 @@ LANGS = {
             "memForget": "好，我把记的东西都忘掉啦", "memWho": "你叫 {name} 呀",
             "memNoName": "你还没告诉我名字呢，说「我叫某某」我就记住了",
             "noKey": "（雪团还没接上 DeepSeek：把 key 写进 ~/.workbuddy/deepseek.key 就能跟我真聊啦）",
-            "netErr": "（雪团刚才走神了：{e}）",
+            "netErr": "雪团刚才走神了，再说一次？",
             "micNeed": "正在申请麦克风与语音识别权限，请在弹窗里点「好」…",
             "micDenied": "权限曾被拒绝，系统不会再弹窗。已帮你打开设置页：麦克风 与 语音识别 里勾上「雪团」",
             "micNoPopup": "权限弹窗没出现（{s} 秒无响应）。已打开设置页，请手动勾上「雪团」",
             "micOk": "在听，说吧～", "micStop": "不听了",
+            "micHold": "（雪团说话中，先不听了）",
             "micAsset": "{lang}语音资源未安装：系统设置→键盘→听写，打开后选「{lang}」会自动下载",
             "micUnavail": "当前语音识别不可用（可能离线/区域不支持）",
             "chips": ["整理桌面", "现在几点", "讲个笑话"],
@@ -390,11 +403,12 @@ LANGS = {
             "memForget": "Forgot everything~", "memWho": "You're {name}",
             "memNoName": "You haven't told me your name — say \"call me …\"",
             "noKey": "(Xuetuan isn't connected to DeepSeek yet: drop your key in ~/.workbuddy/deepseek.key)",
-            "netErr": "(I spaced out for a second: {e})",
+            "netErr": "I spaced out — say that again?",
             "micNeed": "Asking for mic + speech permission — click OK in the popup…",
             "micDenied": "Permission was denied before. Opened System Settings: tick Xuetuan under Microphone and Speech Recognition",
             "micNoPopup": "No popup after {s}s. Opened System Settings — please tick Xuetuan manually",
             "micOk": "Listening~", "micStop": "Stopped listening",
+            "micHold": "(Xuetuan is talking — mic paused)",
             "micAsset": "{lang} speech assets missing: System Settings → Keyboard → Dictation, turn it on to download",
             "micUnavail": "Speech recognition unavailable right now (offline / region)",
             "chips": ["Tidy desk", "What time", "Tell a joke"],
@@ -451,11 +465,12 @@ LANGS = {
             "memForget": "Olvidado todo~", "memWho": "Te llamas {name}",
             "memNoName": "No me has dicho tu nombre — di «me llamo …»",
             "noKey": "(Xuetuan aún no está conectado a DeepSeek: pon tu clave en ~/.workbuddy/deepseek.key)",
-            "netErr": "(Me despisté un segundo: {e})",
+            "netErr": "Me despisté un segundo, ¿lo repites?",
             "micNeed": "Pidiendo permisos de micro y voz — pulsa Aceptar…",
             "micDenied": "El permiso se denegó antes. Abrí Ajustes: marca Xuetuan en Micrófono y Reconocimiento de voz",
             "micNoPopup": "Sin aviso tras {s}s. Abrí Ajustes — marca Xuetuan a mano",
             "micOk": "Escuchando~", "micStop": "Dejo de escuchar",
+            "micHold": "(Xuetuan está hablando — micro en pausa)",
             "micAsset": "Faltan recursos de voz en {lang}: Ajustes → Teclado → Dictado, actívalo para descargar",
             "micUnavail": "Reconocimiento de voz no disponible ahora (sin conexión o región)",
             "chips": ["Ordenar", "Qué hora", "Un chiste"],
@@ -511,11 +526,12 @@ LANGS = {
             "memForget": "Tout oublié~", "memWho": "Tu t'appelles {name}",
             "memNoName": "Tu ne m'as pas dit ton nom — dis « je m'appelle … »",
             "noKey": "(Xuetuan n'est pas encore relié à DeepSeek : mets ta clé dans ~/.workbuddy/deepseek.key)",
-            "netErr": "(J'ai décroché une seconde : {e})",
+            "netErr": "J'ai décroché une seconde, tu répètes ?",
             "micNeed": "Demande d'accès micro et voix — clique OK…",
             "micDenied": "Accès refusé avant. Réglages ouverts : coche Xuetuan dans Micro et Reconnaissance vocale",
             "micNoPopup": "Aucun message après {s}s. Réglages ouverts — coche Xuetuan à la main",
             "micOk": "J'écoute~", "micStop": "J'arrête d'écouter",
+            "micHold": "(Xuetuan parle — micro en pause)",
             "micAsset": "Ressources vocales {lang} manquantes : Réglages → Clavier → Dictée, active pour télécharger",
             "micUnavail": "Reconnaissance vocale indisponible (hors ligne ou région)",
             "chips": ["Ranger", "Quelle heure", "Une blague"],
@@ -571,11 +587,12 @@ LANGS = {
             "memForget": "Esqueci tudo~", "memWho": "Você se chama {name}",
             "memNoName": "Você não me disse seu nome — diga «meu nome é …»",
             "noKey": "(Xuetuan ainda não está ligado ao DeepSeek: coloque sua chave em ~/.workbuddy/deepseek.key)",
-            "netErr": "(Eu me distraí um segundo: {e})",
+            "netErr": "Eu me distraí, repete aí?",
             "micNeed": "Pedindo acesso ao micro e à voz — clique em OK…",
             "micDenied": "Permissão negada antes. Abri os Ajustes: marque Xuetuan em Microfone e Reconhecimento de voz",
             "micNoPopup": "Sem aviso após {s}s. Abri os Ajustes — marque Xuetuan à mão",
             "micOk": "Ouvindo~", "micStop": "Parei de ouvir",
+            "micHold": "(Xuetuan está falando — micro pausado)",
             "micAsset": "Faltam recursos de voz em {lang}: Ajustes → Teclado → Ditado, ative para baixar",
             "micUnavail": "Reconhecimento de voz indisponível agora (offline ou região)",
             "chips": ["Organizar", "Que horas", "Uma piada"],
@@ -630,11 +647,12 @@ LANGS = {
             "memForget": "全部忘れたよ～", "memWho": "{name} だよね",
             "memNoName": "名前を教えてくれてないよ。「私は〇〇」って言ってね",
             "noKey": "（雪団はまだ DeepSeek につながっていないよ：~/.workbuddy/deepseek.key にキーを入れてね）",
-            "netErr": "（ちょっと上の空だった：{e}）",
+            "netErr": "ちょっと上の空だった、もう一回言って？",
             "micNeed": "マイクと音声認識の権限を求めています — ダイアログでOKを押してね…",
             "micDenied": "以前に拒否されています。システム設定を開いたよ：マイクと音声認識で「雪団」にチェックを",
             "micNoPopup": "{s}秒たってもダイアログが出ないよ。システム設定を開いたので手動で「雪団」にチェックしてね",
             "micOk": "聞いてるよ～", "micStop": "聞くのをやめたよ",
+            "micHold": "（雪団が話してるから、ちょっと休憩）",
             "micAsset": "{lang}の音声リソースが未インストール：システム設定→キーボード→音声入力をオンにすると自動ダウンロードされるよ",
             "micUnavail": "今は音声認識を使えないみたい（オフラインか地域の制限）",
             "chips": ["整理する", "何時？", "冗談を言って"],
@@ -688,11 +706,12 @@ LANGS = {
             "memForget": "다 잊었어~", "memWho": "{name}(이)지",
             "memNoName": "이름을 안 알려줬어. 「나는 ○○」라고 해줘",
             "noKey": "(설단이 아직 DeepSeek에 연결되지 않았어: ~/.workbuddy/deepseek.key 에 키를 넣어줘)",
-            "netErr": "(잠깐 멍했어: {e})",
+            "netErr": "잠깐 멍했어, 다시 말해줄래?",
             "micNeed": "마이크와 음성 인식 권한을 요청 중이야 — 팝업에서 OK를 눌러줘…",
             "micDenied": "예전에 거부됐어. 시스템 설정을 열었어: 마이크와 음성 인식에서 「설단」을 체크해 줘",
             "micNoPopup": "{s}초 동안 팝업이 안 떠. 시스템 설정을 열었으니 수동으로 「설단」을 체크해 줘",
             "micOk": "듣고 있어~", "micStop": "듣기 그만뒀어",
+            "micHold": "(설단이 말하는 중 — 마이크 일시정지)",
             "micAsset": "{lang} 음성 리소스가 없어: 시스템 설정→키보드→받아쓰기 를 켜면 자동으로 받아와",
             "micUnavail": "지금은 음성 인식을 쓸 수 없어(오프라인이거나 지역 제한)",
             "chips": ["정리해 줘", "몇 시야?", "농담해 줘"],
@@ -1306,12 +1325,15 @@ def deepseek_stream(text, on_delta, on_done, on_reset=None, retry=1):
             full.append(once(False))
         reply = "".join(full).strip()
         if not reply:
-            reply = T("netErr", e="empty")
-        _hist_add(text, reply)
+            log("DeepSeek 返回空")
+            reply = T("netErr")
+        else:
+            # 出错的回答不进历史：错误信息一旦混进上下文，后面几轮就跟着乱
+            _hist_add(text, reply)
         on_done(reply)
     except Exception as e:
         log("DeepSeek 失败: " + repr(e)[:200])
-        on_done(T("netErr", e=str(e)[:70]))
+        on_done(T("netErr"))
 
 
 # ---------- 记忆：记住用户的名字和他交代的事 ----------
@@ -1517,6 +1539,19 @@ def _arm_rest(minutes):
 
 _chat_seq = [0]
 _chat_seq_lock = threading.Lock()
+_last_chat = ["", 0.0]
+
+
+def _chat_guard(text, h):
+    """同一个问题 1.2 秒内连来两次就丢掉第二次。
+    回车键和发送按钮偶尔会各触发一次，两条回答同时跑会把气泡搅乱。"""
+    now = time.time()
+    if text == _last_chat[0] and now - _last_chat[1] < 1.2:
+        log("忽略重复提问: " + str(text)[:30])
+        return
+    _last_chat[0], _last_chat[1] = text, now
+    do_chat(h, text)
+
 
 
 def _next_chat_seq():
@@ -1584,7 +1619,7 @@ def do_chat(h, text):
             deepseek_stream(text, on_delta, on_done, on_reset=on_reset)
         except Exception as e:
             log("chat 异常: " + repr(e))
-            push_js(h, {"type": "chatend", "seq": seq, "text": T("netErr", e=str(e)[:70])})
+            push_js(h, {"type": "chatend", "seq": seq, "text": T("netErr")})
 
     threading.Thread(target=work, daemon=True).start()
 
@@ -1608,6 +1643,7 @@ def do_joke(h):
 
 # ---------- 麦克风（SFSpeechRecognizer + AVAudioEngine，框架缺失则降级） ----------
 _mic = {}
+_mic_wanted = [False]      # 用户是不是开着听（雪团开口时会被临时捂住，说完自动恢复）
 
 
 def _mic_permission():
@@ -1768,7 +1804,7 @@ def _open_sysprefs(kind):
         return False
 
 
-def _begin_mic(h):
+def _begin_mic(h, quiet=False):
     try:
         log("_begin_mic 开始")
         from Speech import SFSpeechRecognizer, SFSpeechAudioBufferRecognitionRequest
@@ -1820,6 +1856,8 @@ def _begin_mic(h):
             return
         def onRes(result, err):
             try:
+                if _tts.get("speaking") or (time.time() - (_tts.get("last_end") or 0.0) < 0.8):
+                    return                      # 雪团正在念 / 刚念完，别把自己听进去
                 if err is not None:
                     es = str(err)
                     log("识别回调 err=%s" % es[:200])
@@ -1838,6 +1876,9 @@ def _begin_mic(h):
                 t = result.bestTranscription().formattedString()
                 if not t:
                     return
+                if _is_echo(t):
+                    log("识别结果像回声，丢弃: %s" % t[:40])
+                    return
                 if result.isFinal():
                     log("识别完成: %s" % t)
                     push_js(h, {"type": "transcript", "text": t, "auto": True})
@@ -1853,13 +1894,104 @@ def _begin_mic(h):
         _mic["req"] = req
         _mic["rec"] = rec
         log("_begin_mic 成功，开始聆听")
-        push_js(h, {"type": "micstate", "on": True, "msg": T("micOk")})
+        _mic_wanted[0] = True
+        push_js(h, {"type": "micstate", "on": True,
+                    "msg": None if quiet else T("micOk")})
+        tm = threading.Timer(30.0, lambda: _mic_timeout(h))
+        tm.daemon = True
+        tm.start()
+        _mic["timer"] = tm
     except Exception as e:
         log("_begin_mic 失败: " + repr(e))
         push_js(h, {"type": "micstate", "on": False, "msg": "麦克风启动失败：" + str(e)[:90]})
 
 
+def _norm_echo(t):
+    """回声比对用的归一化：去掉标点空格，全角半角不管。"""
+    return re.sub(r"[\s，。？！、,.?!:;；：\"'“”‘’\-—…·（）()]+", "", str(t or "")).lower()
+
+
+def _is_echo(t):
+    """这段识别结果是不是雪团自己刚念出来的话？
+    语音识别会把「雪团」听成「集团」这类近音字，所以不能做精确比对，
+    用「互相包含 + 相似度」两条判据。"""
+    last = _tts.get("last_text") or ""
+    a, b = _norm_echo(t), _norm_echo(last)
+    if len(a) < 6 or not b:
+        return False
+    if a in b or b in a:
+        return True
+    try:
+        import difflib
+        return difflib.SequenceMatcher(None, a, b).ratio() >= 0.62
+    except Exception:
+        return False
+
+
+def _mic_hold():
+    """雪团要开口了 —— 先把耳朵捂上。
+    不捂的后果（实测）：它把自己念的话听进去，识别结果被拼进输入框，
+    人一按回车就把「雪团刚才说过的话」当成提问发回去，回答于是越来越乱。"""
+    if not _mic.get("engine"):
+        return False
+    try:
+        if _mic.get("task") is not None:
+            _mic["task"].cancel()
+    except Exception:
+        pass
+    try:
+        if _mic.get("req") is not None:
+            _mic["req"].endAudio()
+    except Exception:
+        pass
+    try:
+        _mic["engine"].stop()
+        _mic["engine"].inputNode().removeTapOnBus_(0)
+    except Exception:
+        pass
+    try:
+        tm = _mic.get("timer")
+        if tm is not None:
+            tm.cancel()
+    except Exception:
+        pass
+    _mic.clear()
+    if _mic_wanted[0]:
+        push_js(_KEEP.get("handler"),
+                {"type": "micstate", "on": False, "hold": True, "msg": T("micHold")})
+    log("雪团开口 → 麦克风暂停")
+    return True
+
+
+def _mic_timeout(h):
+    """兜底：最多听 30 秒就自己关掉。
+    实测 SFSpeechRecognizer 有时一直只吐中间结果、不给最终结果，
+    麦克风就永远停不下来，识别文本一路往上叠加（雪团自己的声音也会被叠进去），
+    人一按回车发出去的就是这坨越来越长的脏句子 —— 回答于是越来越乱。"""
+    if not _mic.get("engine"):
+        return
+    log("麦克风超时自动关闭（30s）")
+    stop_mic(h)
+
+
+def _mic_release():
+    """说完话把耳朵还回来（前提是用户本来就开着听）。"""
+    if not _mic_wanted[0] or _mic.get("engine"):
+        return
+    h = _KEEP.get("handler")
+    if h is None:
+        return
+    log("雪团说完 → 麦克风恢复")
+    _begin_mic(h, quiet=True)
+
+
 def stop_mic(h):
+    try:
+        tm = _mic.get("timer")
+        if tm is not None:
+            tm.cancel()
+    except Exception:
+        pass
     try:
         if _mic.get("task") is not None:
             _mic["task"].cancel()
@@ -1877,6 +2009,7 @@ def stop_mic(h):
     except Exception:
         pass
     _mic.clear()
+    _mic_wanted[0] = False
     push_js(h, {"type": "micstate", "on": False, "msg": T("micStop")})
 
 
@@ -1934,7 +2067,7 @@ class PetHandler(NSObject):
             elif t == "joke":
                 do_joke(self)
             elif t == "chat":
-                do_chat(self, body.get("text", ""))
+                _chat_guard(body.get("text", ""), self)
             elif t == "focus":
                 focus_app(self)
             elif t == "mic":
