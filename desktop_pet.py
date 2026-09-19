@@ -283,6 +283,9 @@ _ACT_ALIAS = {"rest": "yawn", "sleep": "yawn", "yawn": "yawn", "nap": "yawn",
 # 时长要略大于片子本身（3.7s / 5.0s），否则会从半截被掐掉。
 _ACT_MS = {"hello": 5000, "scenery": 6200, "idle": 6000, "yawn": 0}
 
+# 开机问候：一次进程只挥一次手（只有宠物窗会报到，所以标记设在调度时）
+_GREET = {"done": False}
+
 
 def set_rest(on, h=None):
     _nap["on"] = bool(on)
@@ -327,6 +330,52 @@ def do_action(h=None, name=None):
         if line:
             push_js(h, {"type": "bubble", "msg": line,
                         "delay": 1100 if name == "idle" else 0})
+
+
+def _startup_greet():
+    """开机后自动抬爪挥手一次 —— 一启动就看得见雪团会动。
+
+    必须跑在主线程上（由 NSTimer 触发）：_push_scene 是直接
+    evaluateJavaScript，从子线程调会崩。"""
+    try:
+        do_action(None, "hello")
+        line = _act_line("hello")
+        if line:
+            push_js(None, {"type": "bubble", "msg": line})
+    except Exception as e:
+        log("开场问候失败: " + repr(e))
+
+
+def _greet_after_scene_ready(tries=0):
+    """等场景窗真的就绪了再挥手。
+
+    场景窗**没有注册消息桥**，所以它永远不会自己报到，不能在 hello 分支里
+    用身份比较来判断它。这里直接轮询它的 document.readyState —— 推早了
+    _push_scene 会把消息静默丢掉，表现就是「开机不挥手」。"""
+    from Foundation import NSTimer
+
+    def again():
+        NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+            0.5, False, lambda t: _greet_after_scene_ready(tries + 1))
+
+    w = _KEEP.get("scene_web")
+    if w is None:
+        log("开场问候放弃：还没有场景窗")
+        return
+    if tries > 20:                      # 最多等 10 秒
+        log("开场问候放弃：场景窗一直没就绪")
+        return
+
+    def done(r, e):
+        if str(r) == "complete":
+            _startup_greet()
+        else:
+            again()
+
+    try:
+        w.evaluateJavaScript_completionHandler_("document.readyState", done)
+    except Exception:
+        again()
 
 
 # ---------- 多语言 ----------
@@ -2146,6 +2195,16 @@ class PetHandler(NSObject):
                 push_js(self, {"type": "ttsstate", "on": _tts["on"]})
                 if _nap["on"]:
                     _push_scene({"type": "reststate", "on": True, "msg": T("restOn")})
+                # 开场问候：猫长在场景视频里，得等场景窗就绪才放得了动作片；
+                # 睡着（上次退出时是休息状态）就不打扰。
+                elif not _GREET["done"]:
+                    _GREET["done"] = True
+                    try:
+                        from Foundation import NSTimer
+                        NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                            1.8, False, lambda t: _greet_after_scene_ready())
+                    except Exception as e:
+                        log("开场问候定时失败: " + repr(e))
             elif t == "season":
                 set_season(str(body.get("name") or ""), self)
             elif t == "tts":

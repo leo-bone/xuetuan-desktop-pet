@@ -152,11 +152,7 @@
      表现就是「点了没反应 / 时灵时不灵」，而且是随机的。 */
   .actLayer{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
     opacity:0;transition:opacity .8s ease;pointer-events:none;z-index:2}
-  /* 打招呼：猫旁边冒一只挥手的小爪（现有素材里没有「招手」这条片子） */
-  #pawWave{position:fixed;left:33.5%;top:32.5%;z-index:5;font-size:60px;line-height:1;
-    opacity:0;pointer-events:none;transition:opacity .3s ease;transform-origin:72% 88%}
-  html.hello #pawWave{opacity:1;animation:pawWave 1.05s ease-in-out infinite}
-  @keyframes pawWave{0%,100%{transform:rotate(-15deg) scale(1)}50%{transform:rotate(17deg) scale(1.07)}}
+  /* 打招呼：现在是真「抬爪挥手」动作片（assets/act_hello.mp4），不再叠 emoji 贴纸 */
   #sleepVeil{position:fixed;inset:0;z-index:3;pointer-events:none;opacity:0;transition:opacity 1.3s ease;
     background:radial-gradient(120% 95% at 34% 46%, rgba(6,10,24,.04) 0%, rgba(3,6,16,.66) 100%)}
   html.rest #sleepVeil{opacity:1}
@@ -179,7 +175,7 @@
   /* 场景模式下隐藏一切 UI；宠物模式下隐藏视频 */
   html.scene #petZone,html.scene #say,html.scene #hint,html.scene #cmd,html.scene #plan,
   html.scene #chips,html.scene #busy,html.scene #actMenu{display:none}
-  html.pet #vA,html.pet #vB,html.pet .actLayer,html.pet #pawWave,html.pet #poster,html.pet #veil,
+  html.pet #vA,html.pet #vB,html.pet .actLayer,html.pet #poster,html.pet #veil,
   html.pet #sleepVeil,html.pet #zzz,
   html.pet #bgA,html.pet #bgB,html.pet #particles{display:none}
   /* 宠物窗必须真透明，否则左条会变成一块黑 */
@@ -195,7 +191,6 @@
   <div id="particles"></div>
   <div id="veil"></div>
   <!-- 动作层 / 休息层（只在场景窗显示；猫本身长在场景视频里，换片子就「换了猫的动作」） -->
-  <div id="pawWave">👋</div>
   <div id="sleepVeil"></div>
   <div id="zzz"><b>z</b><b>z</b><b>z</b></div>
 
@@ -375,7 +370,7 @@
     // 表现就是「点了没反应 / 时灵时不灵」——而且是随机的。
     var actPool = {}, actNow = null, actTimer = null;
     var ACT_SPEC = {
-      hello:   {once:false, hold:5000, hello:true},   // 坐着眨眼 + 旁边冒挥手爪
+      hello:   {once:false, hold:5000},               // 抬爪挥手问候（真动作片，循环播）
       scenery: {once:true,  hold:6200},               // 播一遍 → 定格「转过头看窗外」
       idle:    {once:false, hold:6000},               // 坐着发呆（心理活动由原生下发）
       yawn:    {once:true,  hold:0}                   // 一遍 → 定格 = 睡着，不再动
@@ -400,10 +395,21 @@
     }
 
     // 演某一条：只切透明度、不改 src —— 没有加载竞争，点了就有反应
+    // 切动作时把上一条**立刻**关掉（临时摘掉 transition）：
+    // 两条片子都做 .8s 淡入淡出的话，切换那一瞬间会有 0.8 秒「两只猫叠在一起」的重影。
+    function actHideNow(v){
+      if(!v) return;
+      var t = v.style.transition;
+      v.style.transition = "none";
+      actHide(v);
+      void v.offsetWidth;                 // 强制回流，让「立刻 = 0」生效
+      v.style.transition = t || "";
+    }
+
     function actPlay(name, once){
       var v = actPool[name];
       if(!v) return null;
-      for(var k in actPool){ if(actPool[k] !== v) actHide(actPool[k]); }
+      for(var k in actPool){ if(actPool[k] !== v) actHideNow(actPool[k]); }
       v.loop = !once;
       try{ v.currentTime = 0; }catch(e){}
       v.style.opacity = 1;
@@ -420,7 +426,6 @@
       if(!actPool[name]) return;
       if(actTimer){ clearTimeout(actTimer); actTimer = null; }
       var spec = ACT_SPEC[name] || {once:true, hold:4200};
-      document.documentElement.classList.toggle("hello", !!spec.hello);
       actNow = actPlay(name, !!spec.once);
       var hold = (ms != null && ms > 0) ? ms : spec.hold;
       if(hold){
@@ -430,7 +435,6 @@
 
     // 动作演完：休息中就接着打哈欠睡，否则把主场景接回来
     function actFinish(){
-      document.documentElement.classList.remove("hello");
       if(actTimer){ clearTimeout(actTimer); actTimer = null; }
       if(document.documentElement.classList.contains("rest")){
         actNow = actPlay("yawn", true);
@@ -442,7 +446,6 @@
 
     setRest = function(on){
       document.documentElement.classList.toggle("rest", !!on);
-      document.documentElement.classList.remove("hello");
       if(actTimer){ clearTimeout(actTimer); actTimer = null; }
       if(!on){
         actStopAll();
@@ -491,6 +494,11 @@
     });
   }
 
+  // 每条动作演多久（与原生 _ACT_MS 对齐）。用来在演完后把按钮高亮灭掉 ——
+  // 否则点过的按钮会一直亮着，像是还有事在发生。
+  var ACT_HOLD = {hello: 5000, scenery: 6200, idle: 6000};
+  var actClearTimer = null;
+
   // ✨ 动作菜单：把「雪团会哪些动作」一条条写出来，点哪条演哪条。
   // 之前 ✨ 是随机播，点完也不知道能干嘛——按钮认不出来就是因为这个。
   // 文案由原生按语言下发（UI.acts），这里不硬编码。
@@ -514,6 +522,12 @@
         var pb = actMenuEl.querySelector("button.playing");
         if(pb) pb.classList.remove("playing");
         b.classList.add("playing");
+        if(actClearTimer){ clearTimeout(actClearTimer); }
+        actClearTimer = setTimeout(function(){
+          actClearTimer = null;
+          var q = actMenuEl.querySelector("button.playing");
+          if(q) q.classList.remove("playing");
+        }, ACT_HOLD[k] || 5000);
         post({type:"act", name: k});
       });
       actMenuEl.appendChild(b);
@@ -635,6 +649,7 @@
   var restBtn = document.getElementById("rest");
   function setRestUI(on){
     restOn = !!on;
+    if(actClearTimer){ clearTimeout(actClearTimer); actClearTimer = null; }
     if(restBtn) restBtn.classList.toggle("on", restOn);
     if(!restOn && actMenuEl){
       var pb = actMenuEl.querySelector("button.playing");

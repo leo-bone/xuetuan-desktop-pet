@@ -19,9 +19,18 @@ A lightweight desktop companion built on native macOS frameworks (pyobjc + WKWeb
 
 [中文](#中文) · [English](#english) · [日本語](#日本語) · [한국어](#한국어) · [Español](#español) · [Português](#português) · [Français](#français)
 
+> **v4.5 · 真抬爪挥手 + 三处体验修复 / Real wave & three UX fixes**
+> - 🐾 **招手问候换成真动作**：原来是耳朵旁贴一只 👋 emoji 小爪，现在用 AI 生成的动作视频——猫把右爪抬到耳边、摆动两下再放下，构图与场景无缝衔接（已清除 AI 水印）。`act_hello.mp4` 已替换。
+>   **Greeting is now a real move**: replaced the 👋 sticker with an AI-generated clip — the cat raises its right paw to its ear, waves twice, then lowers it, matched seamlessly to the scene (AI watermark removed).
+> - 👻 **修掉切动作时的「两只猫重影」**：切换动作时先瞬间关掉上一条片（`actHideNow`），不再有 0.8s 交叉淡入期间两只猫叠一起。
+>   **Fixed the double-cat ghosting**: the previous clip snaps off instantly before the next fades in, so no two cats overlap during the 0.8s cross-fade.
+> - 💡 **修掉动作菜单高亮一直亮**：点完动作按各自时长（`ACT_HOLD`）自动灭掉 `playing` 高亮，不再常亮。
+>   **Fixed the action-menu highlight staying lit**: the highlight now auto-clears after each move's own duration.
+> - 👋 **开机自动挥手问候**：唤醒后场景窗一就绪就挥手 + 气泡「喵～你好呀！」，睡着时不打扰；一次进程只触发一次。
+>   **Auto wave on launch**: waves + a "Miao～ hi there!" bubble once the scene is ready after waking; skipped while napping; fires once per process.
 > **v4.4 · 这一轮的修复 / This round's fixes**
-> - 🐾 **四个动作终于分得清**：招呼 → 猫右耳旁冒一只挥手小爪；看风景 → 一点就转头，并**定格在背身看窗外**；发呆 → 会自己嘀咕一句「心理活动」（7 语言各 4 句随机）；打哈欠睡觉 → **一定**打哈欠然后睡熟不动。
->   **Four actions, finally distinct**: greeting pops a waving paw by its ear; "watch the view" turns its head away and *holds* the pose; "spacing out" mumbles a random inner monologue (4 lines × 7 languages); "yawn & sleep" *always* yawns and then freezes asleep.
+> - 🐾 **四个动作终于分得清**：招呼 → 真抬爪挥手（AI 生成的动作视频，猫把右爪抬到耳边摆两下）；看风景 → 一点就转头，并**定格在背身看窗外**；发呆 → 会自己嘀咕一句「心理活动」（7 语言各 4 句随机）；打哈欠睡觉 → **一定**打哈欠然后睡熟不动。
+>   **Four actions, finally distinct**: greeting is a real paw-raise wave (AI-generated clip — the cat lifts its right paw to its ear and waves twice); "watch the view" turns its head away and *holds* the pose; "spacing out" mumbles a random inner monologue (4 lines × 7 languages); "yawn & sleep" *always* yawns and then freezes asleep.
 > - 🐛 **「有时候不灵」其实必然不灵**：菜单里「打哈欠睡觉」发下去的名字不在动作表里，被 `random.choice` 顶替成「坐着眨眼」——2/3 概率演错。现在走别名表，认不出的名字**什么都不演**，绝不随机顶替。
 >   **The "sometimes it doesn't work" bug was actually 100% broken**: the yawn menu item sent a name that wasn't in the action table, so it fell through to `random.choice` and played the wrong clip 2 times out of 3. Unknown names are now *ignored*, never randomly substituted.
 > - 🌀 **桌面不再「转圈圈」**：底图重做成 **12.8 秒正放+倒放的无缝循环**，整段都是正面坐着眨眼，猫再也不转过身背对你；动作演完回到的就是这个安静画面。
