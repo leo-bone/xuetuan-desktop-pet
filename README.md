@@ -10,6 +10,11 @@ A lightweight desktop companion built on native macOS frameworks (pyobjc + WKWeb
 
 ![雪团 · 桌面伴侣 演示 / Demo](xuetuan_demo.gif)
 
+**四个动作 / The four actions**（点 ✨ 弹出菜单，点哪条演哪条）
+
+![四个动作对照 / Four actions](雪团-动作对照图.png)
+
+
 ▶️ 高清视频（**含七语言语音**）/ Full-quality video (**with 7-language narration**): [`xuetuan_demo.mp4`](xuetuan_demo.mp4)
 
 [中文](#中文) · [English](#english) · [日本語](#日本語) · [한국어](#한국어) · [Español](#español) · [Português](#português) · [Français](#français)
