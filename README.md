@@ -14,6 +14,12 @@ A lightweight desktop companion built on native macOS frameworks (pyobjc + WKWeb
 
 [中文](#中文) · [English](#english) · [日本語](#日本語) · [한국어](#한국어) · [Español](#español) · [Português](#português) · [Français](#français)
 
+> **v4.3 · 刚修的两个真问题 / Two real bugs just fixed**
+> - 🐱 **猫不再听自己说话**：雪团开口念话时会自动暂停麦克风，说完再恢复；识别结果还会跟「它刚念过的话」做一次比对，像回声就丢弃。
+>   **The cat no longer hears itself**: the mic auto-pauses while Xuetuan speaks and resumes after; anything that looks like an echo of its own last line is dropped.
+> - 💬 **回车即闭麦**：按下回车的瞬间就停止聆听（以前麦克风会一直开着、把识别文本一路往上叠加，连猫自己的声音都叠进去，发出去就变成一坨脏句子，回答于是越来越乱）。另有 30 秒兜底自动闭麦。
+>   **Enter = mic off**: sending stops listening immediately (it used to keep appending — including the cat's own voice — so the sent text grew into gibberish). 30s auto-stop as a backstop.
+
 </div>
 
 ---

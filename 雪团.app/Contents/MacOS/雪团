@@ -1,7 +1,0 @@
-#!/bin/bash
-# 雪团 Xuetuan — macOS 桌面壁纸宠物启动器
-DIR="/Users/leo/WorkBuddy/2026-09-18-18-18-01"
-PY="/Users/leo/.workbuddy/binaries/python/envs/video/bin/python"
-if [ ! -x "$PY" ]; then PY="$(command -v python3)"; fi
-cd "$DIR" || exit 1
-exec "$PY" desktop_pet.py
