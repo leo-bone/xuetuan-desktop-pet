@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="zh-CN" class="scene">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>雪团 · 桌面伴侣</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#070a12;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    cursor:default;-webkit-user-select:none;user-select:none}
+
+  /* ===== 场景模式：全屏视频壁纸 ===== */
+  #vA,#vB{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
+    object-position:center;z-index:1;transition:opacity 1.1s linear;pointer-events:none}
+  #vB{opacity:0}
+  #poster{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+  #veil{position:fixed;inset:0;z-index:2;pointer-events:none;
+    background:radial-gradient(130% 100% at 50% 45%,transparent 58%,rgba(0,0,0,.42) 100%)}
+
+  /* ===== 季节静态背景（春/夏/秋；冬季用视频）===== */
+  /* 缓慢推拉（Ken Burns），让静态图也有呼吸感 */
+  #bgA,#bgB{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
+    object-position:center;z-index:1;opacity:0;pointer-events:none;
+    transition:opacity 1.3s ease;transform-origin:50% 62%;
+    animation:kb 42s ease-in-out infinite alternate}
+  #bgA{opacity:0}
+  @keyframes kb{from{transform:scale(1.015)}to{transform:scale(1.105)}}
+
+  /* ===== 季节粒子（花瓣/落叶/雪/萤光）===== */
+  /* 只在桌面层跑，元素很少（~24 个），纯 transform 动画，老机器也扛得住 */
+  #particles{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+  #particles i{position:absolute;top:-8vh;display:block;opacity:0;
+    will-change:transform,opacity;animation-name:fall;animation-timing-function:linear;
+    animation-iteration-count:infinite}
+  @keyframes fall{
+    0%{transform:translate3d(0,-10vh,0) rotate(0deg);opacity:0}
+    10%{opacity:var(--o,.75)}
+    80%{opacity:var(--o,.75)}
+    100%{transform:translate3d(var(--dx,0px),116vh,0) rotate(var(--rot,180deg));opacity:0}}
+  /* 夏季萤光：不落下，原地缓慢漂浮 */
+  #particles i.float{animation-name:drift;top:auto}
+  @keyframes drift{
+    0%{transform:translate3d(0,0,0) scale(.85);opacity:0}
+    25%{opacity:var(--o,.6)}
+    50%{transform:translate3d(var(--dx,20px),-18px,0) scale(1.15);opacity:var(--o,.6)}
+    75%{opacity:var(--o,.6)}
+    100%{transform:translate3d(0,0,0) scale(.85);opacity:0}}
+
+  /* ===== 宠物模式：透明左条，可点猫 ===== */
+  /* 猫的互动热区：对应全屏场景里坐在窗台上的雪团（左 8%~38%） */
+  #petZone{position:fixed;left:20%;top:38%;width:75%;height:62%;z-index:3;
+    cursor:pointer;border-radius:24px;transition:.25s}
+  /* 只做极淡提示，不再画明显外框（外框会被误认成"弹出的框"） */
+  #petZone:hover{box-shadow:0 0 46px rgba(150,200,255,.14) inset}
+  #petZone:active{transform:scale(.985)}
+
+  /* 说话气泡 */
+  #say{position:fixed;left:6%;top:40%;z-index:4;max-width:88%;
+    padding:12px 18px;border-radius:16px;background:rgba(14,19,32,.94);color:#f0f4ff;font-size:15px;line-height:1.6;
+    border:1px solid rgba(170,210,255,.22);box-shadow:0 12px 40px rgba(0,0,0,.45);
+    opacity:0;transform:translateY(8px);transition:.35s;pointer-events:none;white-space:pre-wrap}
+  #say.show{opacity:1;transform:translateY(0)}
+
+  /* 底部提示 */
+  #hint{position:fixed;left:4%;bottom:120px;z-index:4;
+    padding:7px 16px;border-radius:20px;background:rgba(14,19,32,.88);border:1px solid rgba(170,210,255,.16);
+    color:rgba(226,236,255,.72);font-size:12px;letter-spacing:.3px;transition:opacity .8s}
+  #hint.gone{opacity:0}
+
+  /* 指令栏 */
+  #cmd{position:fixed;left:4%;bottom:120px;z-index:6;display:flex;gap:8px;align-items:center;
+    width:min(94%,412px);padding:8px 8px 8px 16px;border-radius:30px;
+    background:rgba(14,19,32,.95);
+    border:1px solid rgba(170,210,255,.24);box-shadow:0 16px 50px rgba(0,0,0,.5);
+    opacity:0;pointer-events:none;transition:.3s}
+  #cmd.show{opacity:1;pointer-events:auto}
+  #cmd input{flex:1;background:transparent;border:none;outline:none;color:#f0f4ff;
+    font-size:15px;padding:6px 2px;font-family:inherit;min-width:0}
+  #cmd input::placeholder{color:rgba(200,215,240,.42)}
+  #mic,#tts{width:34px;height:34px;flex:none;border:none;border-radius:50%;
+    background:rgba(170,210,255,.16);color:#cfe4ff;font-size:15px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.2s}
+  #mic.on{background:linear-gradient(135deg,#ff9a9a,#ff6b6b);color:#fff;animation:pulse 1.1s infinite}
+  #mic.hold{opacity:.42;animation:none}
+  #tts.on{background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a}
+  /* 语言键 / 关闭：比主按钮小一号，免得挤爆指令栏 */
+  #lang,#close{width:26px;height:26px;flex:none;border:none;border-radius:50%;
+    background:rgba(170,210,255,.10);color:#bcd4f5;font-size:12px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.2s}
+  #lang:hover,#close:hover{background:rgba(170,210,255,.22)}
+
+  /* 😴 休息 / ✨ 动作：原来漏了样式，吃的是浏览器默认按钮外观
+     （截图里那两个「认不出的方框」就是它俩），跟 🎤🔊 对齐成同款圆形键 */
+  #rest,#act{width:34px;height:34px;flex:none;border:none;border-radius:50%;
+    background:rgba(170,210,255,.16);color:#cfe4ff;font-size:15px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.2s}
+  #rest:hover,#act:hover{background:rgba(170,210,255,.3)}
+  #rest.on{background:linear-gradient(135deg,#8ea9ff,#c3a6ff);color:#0a0f1a;animation:pulse 3.4s ease-in-out infinite}
+  #act.on{background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a}
+
+  /* ✨ 动作菜单：点 ✨ 弹出来，把「有哪些动作」直接写出来，不用猜 */
+  #actMenu{position:fixed;left:4%;bottom:176px;z-index:7;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:84%;opacity:0;pointer-events:none;transform:translateY(6px);transition:.24s}
+  #actMenu.show{opacity:1;pointer-events:auto;transform:none}
+  #actMenu button{font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;
+    padding:9px 13px;border-radius:17px;display:flex;align-items:center;gap:6px;
+    background:rgba(14,19,32,.94);border:1px solid rgba(170,210,255,.2);color:#dfe9fb;
+    box-shadow:0 10px 28px rgba(0,0,0,.45)}
+  #actMenu button:hover{background:rgba(45,66,105,.96);color:#fff}
+  #actMenu button em{font-style:normal;font-size:15px;line-height:1}
+
+  /* 快捷指令：指令栏上方一排小胶囊，点一下就发（省打字） */
+  #chips{position:fixed;left:4%;bottom:172px;z-index:6;display:flex;gap:8px;flex-wrap:wrap;
+    opacity:0;pointer-events:none;transition:.3s}
+  #chips.show{opacity:1;pointer-events:auto}
+  #chips b{font-weight:500;font-size:12px;padding:6px 12px;border-radius:16px;cursor:pointer;
+    background:rgba(14,19,32,.9);border:1px solid rgba(170,210,255,.18);color:#cfdcf3}
+  #chips b:hover{background:rgba(40,60,95,.92);color:#fff}
+  /* 流式回答：末尾一个小光标，表示还在写 */
+  #say.typing::after{content:"▍";opacity:.8;animation:blink .9s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+  #cmd button.go{border:none;background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a;
+    font-size:15px;font-weight:600;width:38px;height:34px;border-radius:20px;cursor:pointer;
+    flex:none;display:flex;align-items:center;justify-content:center}
+  #cmd button.go:active{transform:scale(.94)}
+
+  /* 整理确认面板 */
+  #plan{position:fixed;left:3%;top:8%;z-index:7;width:94%;max-height:82vh;overflow:auto;
+    background:rgba(9,13,22,.95);border-radius:18px;
+    border:1px solid rgba(170,210,255,.24);padding:20px;color:#e9eefb;
+    box-shadow:0 24px 80px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:.28s}
+  #plan.show{opacity:1;pointer-events:auto}
+  #plan h3{font-size:17px;margin-bottom:4px}
+  #plan .sub{font-size:12.5px;color:rgba(200,215,240,.6);margin-bottom:12px}
+  #plan .warn{color:#ffd98a;font-size:13.5px;line-height:1.65;margin:12px 0;
+    background:rgba(255,170,40,.10);border-left:3px solid #ffb84d;padding:10px 12px;border-radius:8px}
+  #plan .list{max-height:32vh;overflow:auto;margin:12px 0;font-size:13px;line-height:1.7}
+  #plan .list b{color:#bfe0ff}
+  #plan .row{display:flex;gap:10px;margin-top:14px}
+  #plan .row button{flex:1;border:none;padding:10px;border-radius:12px;font-size:14px;cursor:pointer;font-weight:600}
+  #plan .ok{background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a}
+  #plan .no{background:rgba(255,255,255,.08);color:#cdd8ee}
+
+  /* ---- 动作层 / 休息层（只在场景窗显示）----
+     猫本身长在场景视频里，所以要让它「别转圈、改打哈欠」就换一条片子盖上去。 */
+  #vAct{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
+    opacity:0;transition:opacity .8s ease;pointer-events:none;z-index:2}
+  #sleepVeil{position:fixed;inset:0;z-index:3;pointer-events:none;opacity:0;transition:opacity 1.3s ease;
+    background:radial-gradient(120% 95% at 34% 46%, rgba(6,10,24,.04) 0%, rgba(3,6,16,.66) 100%)}
+  html.rest #sleepVeil{opacity:1}
+  #zzz{position:fixed;left:15%;top:32%;z-index:4;pointer-events:none;opacity:0;transition:opacity .9s ease}
+  html.rest #zzz{opacity:1}
+  #zzz b{position:absolute;left:0;top:0;font:700 30px/1 -apple-system,"PingFang SC",sans-serif;
+    color:#d6e6ff;text-shadow:0 2px 12px rgba(150,190,255,.6);animation:zz 3.1s ease-in-out infinite}
+  #zzz b:nth-child(2){left:18px;top:-18px;font-size:22px;animation-delay:.7s}
+  #zzz b:nth-child(3){left:34px;top:-36px;font-size:15px;animation-delay:1.4s}
+  @keyframes zz{0%{transform:translateY(8px);opacity:0}28%{opacity:.98}100%{transform:translateY(-30px);opacity:0}}
+
+  /* 忙碌小圈：雪团想事情时它转，休息模式下不转（细节优化）*/
+  #busy{position:fixed;left:50%;top:44%;width:22px;height:22px;margin:-11px 0 0 -11px;z-index:5;
+    border-radius:50%;border:2.5px solid rgba(170,210,255,.26);border-top-color:#cfe4ff;
+    opacity:0;transition:opacity .3s;pointer-events:none}
+  #busy.on{opacity:1;animation:spin .85s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  html.rest #busy{opacity:0 !important;animation:none !important}
+
+  /* 场景模式下隐藏一切 UI；宠物模式下隐藏视频 */
+  html.scene #petZone,html.scene #say,html.scene #hint,html.scene #cmd,html.scene #plan,
+  html.scene #chips,html.scene #busy,html.scene #actMenu{display:none}
+  html.pet #vA,html.pet #vB,html.pet #vAct,html.pet #poster,html.pet #veil,
+  html.pet #sleepVeil,html.pet #zzz,
+  html.pet #bgA,html.pet #bgB,html.pet #particles{display:none}
+  /* 宠物窗必须真透明，否则左条会变成一块黑 */
+  html.pet,html.pet body{background:transparent}
+</style>
+</head>
+<body>
+  <!-- 场景视频（仅 scene 模式显示） -->
+  <img id="poster" alt="">
+  <img id="bgA" alt=""><img id="bgB" alt="">
+  <video id="vA" muted autoplay loop playsinline preload="auto"></video>
+  <video id="vB" muted autoplay loop playsinline preload="auto"></video>
+  <div id="particles"></div>
+  <div id="veil"></div>
+  <!-- 动作层 / 休息层（只在场景窗显示；猫本身长在场景视频里，换片子就「换了猫的动作」） -->
+  <video id="vAct" muted loop playsinline preload="auto"></video>
+  <div id="sleepVeil"></div>
+  <div id="zzz"><b>z</b><b>z</b><b>z</b></div>
+
+  <!-- 宠物 UI（仅 pet 模式显示） -->
+  <div id="petZone" title="点我说话"></div>
+  <div id="say"></div>
+  <div id="busy" title="雪团在想…"></div>
+  <div id="hint">点雪团说话 · 试试「整理桌面」「打开 Safari」「现在几点」或随便聊</div>
+  <div id="chips"></div>
+  <!-- ✨ 动作菜单：文案由原生按语言下发（UI.acts），不在这里硬编码 -->
+  <div id="actMenu"></div>
+  <div id="cmd">
+    <input id="cmdin" type="text" placeholder="对雪团说点什么…（回车发送）" autocomplete="off">
+    <button id="mic" title="语音输入（点一下开始/结束）">🎤</button>
+    <button id="tts" title="语音回复：让雪团念出来">🔊</button>
+    <button id="rest" title="让雪团休息：停下转圈，打哈欠然后睡着不动">😴</button>
+    <button id="act" title="让雪团做点别的（招手 / 看风景 / 发呆）">✨</button>
+    <button id="lang" title="切换语言（7 种）">🌐</button>
+    <button id="close" title="收起（Esc）">✕</button>
+    <button class="go" id="cmdsend" title="发送（或直接按回车）">➤</button>
+  </div>
+  <div id="plan">
+    <h3 id="planTitle">整理桌面预览</h3>
+    <div class="sub" id="planSub">下面是会动的文件（只读扫描结果，还没动任何东西）</div>
+    <div class="warn" id="planWarn">⚠️ 确认后我会把零散文件按类型搬进「雪团归档_时间戳」文件夹，<b>不会删除任何文件</b>，并留清单可一键还原。</div>
+    <div class="list" id="planList"></div>
+    <div class="row">
+      <button class="ok" id="planOk">确认整理</button>
+      <button class="no" id="planNo">取消</button>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var WIN = (location.search.match(/[?&]win=(\w+)/)||[])[1] || "pet";
+  document.documentElement.className = WIN;
+
+  var say = document.getElementById("say");
+  var hint = document.getElementById("hint");
+  var cmd = document.getElementById("cmd");
+  var cmdin = document.getElementById("cmdin");
+  var petZone = document.getElementById("petZone");
+  var plan = document.getElementById("plan");
+  var planList = document.getElementById("planList");
+
+  function post(obj){
+    try{ window.webkit.messageHandlers.pet.postMessage(obj); }catch(e){}
+  }
+
+  // ---------- 场景模式：冬季走视频，其余季节走静态图 + 粒子 ----------
+  var vA, vB, bgA, bgB, partsEl;
+  var vAct = null, playAct = function(){}, setRest = function(){};   // 动作层（只有场景窗会赋值）
+  var videoOn = true, seasonNow = "";
+
+  var SEASON_IMG = {
+    spring: "assets/season_spring.jpg",
+    summer: "assets/season_summer.jpg",
+    autumn: "assets/season_autumn.jpg"
+  };
+
+  function buildParticles(kind){
+    if(!partsEl) return;
+    partsEl.innerHTML = "";
+    if(!kind) return;
+    // 每种季节的粒子参数：数量克制（~22 个），保证老机器也不掉帧
+    var conf = {
+      petal: {n:22, colors:["#ffc6da","#ffdcea","#ffb3cf","#ffe9f2"], w:[7,12], h:[5,9],
+              dur:[10,19], sway:[30,90], rot:true},
+      leaf:  {n:20, colors:["#e9a94e","#d9823c","#c76a34","#f0c06a"], w:[9,14], h:[6,10],
+              dur:[11,20], sway:[40,120], rot:true},
+      snow:  {n:26, colors:["#ffffff","#eaf4ff","#dcecff"], w:[3,7], h:[3,7],
+              dur:[11,21], sway:[18,70], rot:false},
+      glow:  {n:18, colors:["#ffe9a8","#fff4c8","#ffd98a"], w:[5,10], h:[5,10],
+              dur:[9,16], sway:[16,46], rot:false, float:true}
+    }[kind];
+    if(!conf) return;
+    var frag = document.createDocumentFragment();
+    for(var i = 0; i < conf.n; i++){
+      var el = document.createElement("i");
+      var w = conf.w[0] + Math.random() * (conf.w[1] - conf.w[0]);
+      var h = conf.h[0] + Math.random() * (conf.h[1] - conf.h[0]);
+      var col = conf.colors[(Math.random() * conf.colors.length) | 0];
+      el.style.width = w.toFixed(1) + "px";
+      el.style.height = h.toFixed(1) + "px";
+      el.style.background = col;
+      el.style.left = (Math.random() * 100).toFixed(2) + "%";
+      if(conf.float){
+        el.className = "float";
+        el.style.top = (8 + Math.random() * 78).toFixed(1) + "%";
+        el.style.boxShadow = "0 0 " + (6 + Math.random() * 10).toFixed(0) + "px " + col;
+      }else{
+        el.style.borderRadius = kind === "snow" ? "50%" : "60% 15% 60% 20%";
+        el.style.boxShadow = kind === "snow" ? "0 0 4px rgba(255,255,255,.7)" : "none";
+      }
+      el.style.animationDuration = (conf.dur[0] + Math.random() * (conf.dur[1] - conf.dur[0])).toFixed(1) + "s";
+      // 负延迟：一上来就均匀散布在整条轨道上，不用等
+      el.style.animationDelay = (-Math.random() * 22).toFixed(1) + "s";
+      el.style.setProperty("--dx", ((Math.random() * 2 - 1) * conf.sway[1]).toFixed(0) + "px");
+      el.style.setProperty("--rot", conf.rot ? ((Math.random() * 900 - 450) | 0) + "deg" : "0deg");
+      el.style.setProperty("--o", (0.45 + Math.random() * 0.5).toFixed(2));
+      frag.appendChild(el);
+    }
+    partsEl.appendChild(frag);
+  }
+
+  function applySeason(name){
+    if(WIN !== "scene") return;          // 只有场景窗管背景；宠物窗收到季节消息直接忽略
+    if(name === seasonNow) return;
+    seasonNow = name;
+    document.documentElement.setAttribute("data-season", name);
+
+    if(name === "winter"){
+      // 冬季：视频在前，静态图淡出，粒子停掉（视频里本身有雪）
+      videoOn = true;
+      try{ vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+      if(front) front.style.opacity = 1;
+      (back || vB).style.opacity = 0;
+      if(bgA) bgA.style.opacity = 0;
+      if(bgB) bgB.style.opacity = 0;
+      buildParticles(null);
+      return;
+    }
+
+    var src = SEASON_IMG[name];
+    if(!src) return;
+    videoOn = false;
+    vA.style.opacity = 0; vB.style.opacity = 0;
+    // 非冬季就把视频真的暂停掉：不然两个 1080p 视频一直在后台解码，白烧 CPU
+    try{ vA.pause(); vB.pause(); }catch(e){}
+
+    // 双缓冲交叉淡化：新图 onload 后才切，避免闪白
+    var incoming = bgFront === bgA ? bgB : bgA;
+    incoming.onload = function(){
+      incoming.style.opacity = 1;
+      (incoming === bgA ? bgB : bgA).style.opacity = 0;
+      bgFront = incoming;
+    };
+    incoming.src = src;
+
+    buildParticles(name === "spring" ? "petal"
+                 : name === "summer" ? "glow"
+                 : name === "autumn" ? "leaf" : "snow");
+  }
+
+  if(WIN === "scene"){
+    vA = document.getElementById("vA");
+    vB = document.getElementById("vB");
+    bgA = document.getElementById("bgA");
+    bgB = document.getElementById("bgB");
+    partsEl = document.getElementById("particles");
+    var poster = document.getElementById("poster");
+    poster.src = "data:image/jpeg;base64,__POSTER_B64__";
+    var SRC = "data:video/mp4;base64,__VIDEO_B64__";
+    vA.src = SRC; vB.src = SRC;
+    vA.style.opacity = 1;
+    var front = vA, back = vB, dur = 0, bgFront = bgA;
+    function swap(){
+      try{
+        back.currentTime = 0; back.play().catch(function(){});
+        if(videoOn){ front.style.opacity = 0; back.style.opacity = 1; }   // 非冬季时不抢透明度
+        var t = front; front = back; back = t;
+      }catch(e){}
+    }
+    function tick(){
+      // 休息时主场景是暂停的，别再触发交叉换片（否则每帧都会 swap，白抽帧）
+      if(videoOn && dur && !document.documentElement.classList.contains("rest")
+         && front.currentTime >= dur - 1.15) swap();
+      requestAnimationFrame(tick);
+    }
+    vA.addEventListener("loadedmetadata", function(){ dur = vA.duration || 0; });
+    vA.play().catch(function(){}); vB.play().catch(function(){});
+    requestAnimationFrame(tick);
+
+    // ---- 动作层：猫的额外动作 / 休息打哈欠（盖在场景视频上）----
+    // 猫本身长在场景视频里，想让它「别转圈、改成打哈欠睡觉」只能盖一条新片子上去。
+    vAct = document.getElementById("vAct");
+    var actTimer = null;
+
+    function loadAct(name){
+      if(!vAct) return;
+      if(vAct.getAttribute("data-act") === name) return;   // 同一条片子不必重载
+      vAct.setAttribute("data-act", name);
+      vAct.src = "assets/act_" + name + ".mp4";
+    }
+
+    // 打哈欠：只播一遍，播完停在最后一帧 —— 这才是「打哈欠，然后睡着，不动了」。
+    // 之前是循环播打哈欠，严格说不算「别动」，这里改成一遍 + 定格。
+    function replayYawn(skipIfAlreadyRested){
+      if(!vAct) return;
+      var now = vAct.getAttribute("data-act");
+      if(skipIfAlreadyRested && now === "yawn" && (vAct.ended || !vAct.paused)){
+        vAct.style.opacity = 1; return;                    // 已经在睡 / 正在打，就别重来一遍
+      }
+      loadAct("yawn");
+      vAct.loop = false;
+      try{ vAct.currentTime = 0; }catch(e){}
+      vAct.style.opacity = 1;
+      var pr = vAct.play(); if(pr && pr.catch) pr.catch(function(){});
+    }
+
+    playAct = function(name, ms){
+      if(!vAct) return;
+      if(actTimer){ clearTimeout(actTimer); actTimer = null; }
+      loadAct(name);
+      vAct.loop = !ms;            // 没给时长就循环（打招呼 / 看风景 / 发呆）
+      try{ vAct.currentTime = 0; }catch(e){}
+      vAct.style.opacity = 1;
+      var pr = vAct.play(); if(pr && pr.catch) pr.catch(function(){});
+      if(ms){
+        actTimer = setTimeout(function(){
+          actTimer = null;
+          if(document.documentElement.classList.contains("rest")){
+            replayYawn();         // 休息中：动作演完接着打哈欠睡觉，不留空帧
+          } else {
+            vAct.style.opacity = 0;
+            try{ vAct.pause(); }catch(e){}
+            try{ vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+          }
+        }, ms);
+      }
+    };
+
+    setRest = function(on){
+      document.documentElement.classList.toggle("rest", !!on);
+      if(actTimer){ clearTimeout(actTimer); actTimer = null; }
+      if(!vAct) return;
+      if(on){
+        try{ vA.pause(); vB.pause(); }catch(e){}   // 主场景停住：从此不再转圈
+        replayYawn(true);
+      } else {
+        vAct.style.opacity = 0;
+        try{ vAct.pause(); vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+      }
+    };
+    // 先按冬季起（等原生把真实季节推过来再切）
+    applySeason("winter");
+  }
+
+  // ---------- 宠物模式：交互 ----------
+  var sayTimer = null;
+  // 停留时长按字数算：一句话 8 秒够读，长回答按每字约 0.17 秒加时（上限 60 秒），
+  // 免得还没读完气泡就自己消失了（原来固定 6/12 秒，长回答根本来不及看）。
+  function holdFor(text){
+    return Math.min(60000, Math.max(8000, String(text || "").length * 170));
+  }
+  function bubble(text, ms){
+    say.textContent = text;
+    say.classList.add("show");
+    say.classList.remove("typing");
+    if(sayTimer) clearTimeout(sayTimer);
+    sayTimer = setTimeout(function(){ say.classList.remove("show"); }, ms || holdFor(text));
+  }
+
+  // ---------- 多语言：文案包由原生下发，页面自己不硬编码 ----------
+  var PACK = null, UI = {}, W = {season:{}, next:[], help:[], tidy:[], open:[], time:[], joke:[]};
+  var chipsEl = document.getElementById("chips");
+  var actMenuEl = document.getElementById("actMenu");
+
+  function buildChips(list){
+    if(!chipsEl) return;
+    chipsEl.innerHTML = "";
+    (list || []).forEach(function(txt){
+      var b = document.createElement("b");
+      b.textContent = txt;
+      b.addEventListener("click", function(){ cmdin.value = txt; send(); });
+      chipsEl.appendChild(b);
+    });
+  }
+
+  // ✨ 动作菜单：把「雪团会哪些动作」一条条写出来，点哪条演哪条。
+  // 之前 ✨ 是随机播，点完也不知道能干嘛——按钮认不出来就是因为这个。
+  // 文案由原生按语言下发（UI.acts），这里不硬编码。
+  function buildActMenu(acts){
+    if(!actMenuEl) return;
+    actMenuEl.innerHTML = "";
+    if(!acts) return;
+    ["hello", "scenery", "idle", "rest"].forEach(function(k){
+      var a = acts[k];
+      if(!a) return;
+      var b = document.createElement("button");
+      b.setAttribute("data-act", k);
+      b.innerHTML = "<em></em><span></span>";
+      b.querySelector("em").textContent = a[0] || "";
+      b.querySelector("span").textContent = a[1] || "";
+      b.addEventListener("click", function(){
+        closeActMenu();
+        if(k === "rest"){ setRestUI(!restOn); return; }   // 复用 😴 的逻辑
+        post({type:"act", name: k});
+      });
+      actMenuEl.appendChild(b);
+    });
+  }
+
+  function closeActMenu(){
+    if(actMenuEl) actMenuEl.classList.remove("show");
+    var ab = document.getElementById("act");
+    if(ab) ab.classList.remove("on");
+  }
+
+  function applyI18n(p){
+    if(!p) return;
+    PACK = p; UI = p.ui || {}; W = p.words || W;
+    document.documentElement.lang = p.code || "zh";
+    if(UI.hint) hint.textContent = UI.hint;
+    if(UI.ph) cmdin.placeholder = UI.ph;
+    var set = function(id, txt){ var el = document.getElementById(id); if(el && txt) el.textContent = txt; };
+    set("planTitle", UI.planTitle); set("planSub", UI.planSub); set("planWarn", UI.planWarn);
+    set("planOk", UI.planOk); set("planNo", UI.planNo);
+    buildChips(UI.chips);
+    buildActMenu(UI.acts);
+  }
+
+  function openCmd(){
+    hint.classList.add("gone");
+    cmd.classList.add("show");
+    closeActMenu();
+    if(chipsEl) chipsEl.classList.add("show");
+    if(!say.classList.contains("show")) bubble(UI.listening || "喵～我在听，说吧");
+    post({type:"focus"});
+    setTimeout(function(){ try{ cmdin.focus(); }catch(e){} }, 60);
+  }
+
+  function closeCmd(){
+    cmd.classList.remove("show");
+    if(chipsEl) chipsEl.classList.remove("show");
+    closeActMenu();
+  }
+
+  var restOn = false;
+  petZone.addEventListener("click", function(){
+    if(restOn){ setRestUI(false); return; }   // 休息中点猫 = 叫醒它
+    openCmd();
+  });
+  var closeBtn = document.getElementById("close");
+  if(closeBtn) closeBtn.addEventListener("click", closeCmd);
+
+  var sent = [], sentIdx = -1;          // 上箭头调回上一句
+  function send(){
+    var t = (cmdin.value || "").trim();
+    if(!t) return;
+    // 话已经说完了 → 立刻闭嘴不再听。
+    // 不然识别结果会继续往上叠加（连雪团念的话都会被算进去），
+    // 把清空了的输入框又填满，下次回车发出去的就是一坨脏句子。
+    if(micOn || document.getElementById("mic").classList.contains("hold")){
+      post({type:"micstop"});
+      micOn = false;
+      var mb2 = document.getElementById("mic");
+      if(mb2) mb2.classList.remove("on", "hold");
+    }
+    cmdin.value = "";
+    micWrote = false;
+    if(sent[sent.length - 1] !== t) sent.push(t);
+    if(sent.length > 30) sent.shift();
+    sentIdx = -1;
+    handle(t);
+  }
+  document.getElementById("cmdsend").addEventListener("click", send);
+
+  // 回车发送。
+  // 注意 isComposing / keyCode 229：中文输入法组词时按回车是「选词」，不是「发送」，
+  // 不拦住的话打中文会一直被误发出去。
+  cmdin.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeCmd(); return; }
+    if(e.key === "ArrowUp" && sent.length){
+      sentIdx = (sentIdx <= 0 ? sent.length : sentIdx) - 1;
+      cmdin.value = sent[sentIdx] || "";
+      e.preventDefault(); return;
+    }
+    if(e.key === "ArrowDown" && sent.length){
+      if(sentIdx >= 0 && sentIdx < sent.length - 1){ sentIdx++; cmdin.value = sent[sentIdx] || ""; }
+      else { sentIdx = -1; cmdin.value = ""; }
+      e.preventDefault(); return;
+    }
+    if(e.key !== "Enter") return;
+    if(e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    send();
+  });
+
+  // 🌐 一键换语言（轮播 7 种；完整列表在菜单栏猫头里）
+  var langBtn = document.getElementById("lang");
+  if(langBtn) langBtn.addEventListener("click", function(){ post({type:"langnext"}); });
+
+  // 语音回复开关（🔊）：开 = 雪团把话念出来，关 = 只打字
+  var ttsOn = false;
+  var ttsBtn = document.getElementById("tts");
+  ttsBtn.addEventListener("click", function(){
+    ttsOn = !ttsOn;
+    ttsBtn.classList.toggle("on", ttsOn);
+    post({type:"tts", on:ttsOn});
+    bubble(ttsOn ? (UI.ttsOn || "好～我用声音陪你说话") : (UI.ttsOff || "好，我只打字"));
+  });
+
+  // 😴 休息：停下转圈 → 打哈欠 → 睡着不动（再点一次、或直接点猫，就醒）
+  var restBtn = document.getElementById("rest");
+  function setRestUI(on){
+    restOn = !!on;
+    if(restBtn) restBtn.classList.toggle("on", restOn);
+    post({type:"rest", on: restOn});
+    bubble(restOn ? (UI.restOn || "好～我先眯一会，不打扰你") : (UI.restOff || "醒啦！陪你玩"));
+  }
+  if(restBtn) restBtn.addEventListener("click", function(){ setRestUI(!restOn); });
+
+  // ✨ 动作：弹菜单，演哪个由你挑（原来是随机撞，点完也不知道能干嘛）
+  var actBtn = document.getElementById("act");
+  if(actBtn) actBtn.addEventListener("click", function(){
+    var open = !!actMenuEl && !actMenuEl.classList.contains("show");
+    if(actMenuEl) actMenuEl.classList.toggle("show", open);
+    actBtn.classList.toggle("on", open);
+    if(open && chipsEl) chipsEl.classList.remove("show");   // 别和快捷指令叠在一起
+  });
+
+  function hasAny(list, s){
+    for(var i = 0; i < (list || []).length; i++){
+      if(list[i] && s.indexOf(String(list[i]).toLowerCase()) >= 0) return true;
+    }
+    return false;
+  }
+
+  function handle(text){
+    var low = text.toLowerCase();
+    var bare = text.trim().replace(/^(换成|换|切换到|来个|换成个|我想看|change to|switch to|cambia a|muda para)+/i, "").trim().toLowerCase();
+    if(hasAny(W.next, low) || hasAny(W.next, bare)){ post({type:"season", name:"next"}); return; }
+    if(W.season[bare]){ post({type:"season", name:W.season[bare]}); return; }
+    if(W.season[low]){ post({type:"season", name:W.season[low]}); return; }
+    if(hasAny(W.help, low)){ post({type:"help"}); return; }
+    if(hasAny(W.tidy, low)){ post({type:"scan"}); return; }
+    var openWords = W.open || [];
+    for(var oi = 0; oi < openWords.length; oi++){
+      var op = String(openWords[oi]).toLowerCase();
+      if(op && low.indexOf(op) === 0){
+        post({type:"open", app:text.slice(op.length).trim()}); return;
+      }
+    }
+    if(hasAny(W.time, low)){ post({type:"time"}); return; }
+    if(hasAny(W.joke, low)){ post({type:"joke"}); return; }
+    // 其它一律当聊天，转 DeepSeek（含「提醒我…」「我叫…」这些，由原生那边先过规则）
+    chatStart();
+    post({type:"chat", text:text});
+  }
+
+  // 整理确认面板
+  document.getElementById("planOk").addEventListener("click", function(){
+    plan.classList.remove("show"); post({type:"tidy"});
+  });
+  document.getElementById("planNo").addEventListener("click", function(){
+    plan.classList.remove("show");
+  });
+
+  // 麦克风
+  var micOn = false;
+  // 雪团正在念话：这段时间里麦克风听见的都是它自己的声音，
+  // 识别结果一律丢弃，绝不填进输入框 —— 否则人一按回车就把猫说过的话发出去了。
+  var speakOn = false;
+  var micWrote = false;               // 上一笔输入框内容是语音填的，还是人手打的
+  cmdin.addEventListener("input", function(){ micWrote = false; });
+  document.getElementById("mic").addEventListener("click", function(){
+    if(micOn){ post({type:"micstop"}); return; }
+    post({type:"mic"});
+  });
+
+  // ---------- 流式回答：一个字一个字往外长 ----------
+  // seq 是这一轮的编号。连着问两句时，上一句没吐完的碎片带着旧编号过来，
+  // 直接丢掉 —— 不然两个问题的回答会混在同一个气泡里变成谁也读不懂的话。
+  var chatBuf = "", chatSeq = 0;
+  // 思考中小圈转一下（休息模式下由 CSS 强制隐藏）
+  function busyOn(on){
+    var b = document.getElementById("busy");
+    if(!b) return;
+    if(on) b.classList.add("on"); else b.classList.remove("on");
+  }
+  function chatStart(o){
+    chatSeq = (o && o.seq) || 0;
+    chatBuf = "";
+    say.textContent = "";
+    say.classList.add("show", "typing");
+    busyOn(true);
+    if(sayTimer) clearTimeout(sayTimer);
+  }
+  function chatDelta(o){
+    if(!o || o.seq !== chatSeq) return;
+    chatBuf += (o.text || "");
+    say.textContent = chatBuf;
+    say.classList.add("show", "typing");
+    if(sayTimer) clearTimeout(sayTimer);
+  }
+  function chatEnd(o){
+    if(!o || o.seq !== chatSeq) return;
+    if(o.text) chatBuf = o.text;
+    say.textContent = chatBuf;
+    say.classList.add("show");
+    say.classList.remove("typing");
+    busyOn(false);
+    if(sayTimer) clearTimeout(sayTimer);
+    sayTimer = setTimeout(function(){ say.classList.remove("show"); }, holdFor(chatBuf));
+  }
+
+  // ---------- 原生回传 ----------
+  window.onPetResult = function(o){
+    if(!o || !o.type) return;
+    if(o.type === "i18n"){ applyI18n(o.pack); return; }
+    if(o.type === "scan"){
+      planList.innerHTML = "";
+      var plan2 = o.plan || {};
+      var total = (o.items || []).length;
+      if(total === 0){ planList.innerHTML = "<div>桌面是空的，没啥可整理～</div>"; }
+      else{
+        var html = "<div>共 <b>" + total + "</b> 个零散文件：</div>";
+        for(var k in plan2){ if(plan2.hasOwnProperty(k)) html += "<div>· " + k + "：<b>" + plan2[k] + "</b> 个</div>"; }
+        planList.innerHTML = html;
+      }
+      plan.classList.add("show");
+    }
+    else if(o.type === "progress"){ bubble(o.msg); }
+    else if(o.type === "done"){ bubble(o.msg); }
+    else if(o.type === "open"){ bubble(o.msg); }
+    else if(o.type === "time"){ bubble(o.msg); }
+    else if(o.type === "joke"){ bubble(o.msg); }
+    else if(o.type === "chat"){ bubble(o.text || o.msg || "", 12000); }
+    else if(o.type === "chatstart"){ chatStart(o); }
+    else if(o.type === "chatdelta"){ chatDelta(o); }
+    else if(o.type === "chatend"){ chatEnd(o); }
+    else if(o.type === "mem"){ busyOn(false); bubble(o.msg || "", 8000); }
+    else if(o.type === "remind"){ busyOn(false); bubble(o.msg || "", 15000); }
+    else if(o.type === "help"){ bubble(o.msg || "", 15000); }
+    else if(o.type === "season"){
+      applySeason(o.name);
+      if(o.msg) bubble(o.msg);
+    }
+    else if(o.type === "transcript"){
+      if(speakOn) return;                 // 雪团在说话，这是回声，丢掉
+      // 语音识别结果：填进输入框并聚焦，按回车就能发（不用去点鼠标）
+      // 只在刚打开输入框时抢一次焦点 —— 边说边出的中间结果会持续刷新，
+      // 每次都 focus 会把用户正在别处打的字打断。
+      var justOpened = !cmd.classList.contains("show");
+      // 只在「框是空的」或「上一笔也是语音填的」时覆盖，别把人打的字冲掉
+      if(micWrote || !cmdin.value){
+        cmdin.value = o.text || "";
+        micWrote = true;
+      }
+
+      cmd.classList.add("show");
+      hint.classList.add("gone");
+      if(justOpened || o.auto){ try{ cmdin.focus(); }catch(e){} }
+      if(o.auto) bubble(UI.heard || "听到了，按回车发给我（想改也行）");
+    }
+    else if(o.type === "ttsstate"){
+      ttsOn = !!o.on;
+      ttsBtn.classList.toggle("on", ttsOn);
+      if(o.msg) bubble(o.msg);
+    }
+    else if(o.type === "err"){ bubble(o.msg); }
+    else if(o.type === "micstate"){
+      var mb = document.getElementById("mic");
+      if(o.hold){ mb.classList.add("hold"); if(o.msg) bubble(o.msg, 2500); return; }
+      mb.classList.remove("hold");
+      micOn = !!o.on;
+      if(micOn) mb.classList.add("on"); else mb.classList.remove("on");
+      if(o.msg) bubble(o.msg);
+    }
+    else if(o.type === "speakstate"){
+      speakOn = !!o.on;
+    }
+    else if(o.type === "reststate"){
+      var isScene = (WIN === "scene");
+      if(isScene) setRest(o.on);            // 场景窗：换打哈欠片子 + 暗化 + zzz
+      restOn = !!o.on;
+      if(restBtn) restBtn.classList.toggle("on", restOn);
+      if(o.msg) bubble(o.msg, 9000);
+    }
+    else if(o.type === "act"){
+      playAct(o.name, o.ms || 5000);       // 场景窗盖一条额外动作；宠物窗 playAct 是空操作
+      if(o.msg) bubble(o.msg);
+    }
+  };
+
+  // 页面就绪后向原生「报到」：原生收到 hello 会把当前季节、语音开关状态推下来。
+  // 这样重启后能自动恢复上次选的季节，不用每次手动切。
+  function hello(){ post({type:"hello"}); }
+  if(document.readyState === "complete"){ setTimeout(hello, 80); }
+  else { window.addEventListener("load", function(){ setTimeout(hello, 80); }); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>雪团</string>
+  <key>CFBundleDisplayName</key><string>雪团 Xuetuan</string>
+  <key>CFBundleIdentifier</key><string>com.leobone.xuetuan</string>
+  <key>CFBundleExecutable</key><string>雪团</string>
+  <key>CFBundleVersion</key><string>4.3</string>
+  <key>CFBundleShortVersionString</key><string>4.3</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>雪团用它听你说话（语音输入）</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>雪团用它把你说的话转成文字</string>
+  <key>NSAppleEventsUsageDescription</key><string>雪团用它打开你指定的 App</string>
+</dict>
+</plist>
