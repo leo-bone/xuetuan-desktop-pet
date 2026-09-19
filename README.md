@@ -14,6 +14,21 @@ A lightweight desktop companion built on native macOS frameworks (pyobjc + WKWeb
 
 [中文](#中文) · [English](#english) · [日本語](#日本語) · [한국어](#한국어) · [Español](#español) · [Português](#português) · [Français](#français)
 
+> **v4.4 · 这一轮的修复 / This round's fixes**
+> - 🐾 **四个动作终于分得清**：招呼 → 猫右耳旁冒一只挥手小爪；看风景 → 一点就转头，并**定格在背身看窗外**；发呆 → 会自己嘀咕一句「心理活动」（7 语言各 4 句随机）；打哈欠睡觉 → **一定**打哈欠然后睡熟不动。
+>   **Four actions, finally distinct**: greeting pops a waving paw by its ear; "watch the view" turns its head away and *holds* the pose; "spacing out" mumbles a random inner monologue (4 lines × 7 languages); "yawn & sleep" *always* yawns and then freezes asleep.
+> - 🐛 **「有时候不灵」其实必然不灵**：菜单里「打哈欠睡觉」发下去的名字不在动作表里，被 `random.choice` 顶替成「坐着眨眼」——2/3 概率演错。现在走别名表，认不出的名字**什么都不演**，绝不随机顶替。
+>   **The "sometimes it doesn't work" bug was actually 100% broken**: the yawn menu item sent a name that wasn't in the action table, so it fell through to `random.choice` and played the wrong clip 2 times out of 3. Unknown names are now *ignored*, never randomly substituted.
+> - 🌀 **桌面不再「转圈圈」**：底图重做成 **12.8 秒正放+倒放的无缝循环**，整段都是正面坐着眨眼，猫再也不转过身背对你；动作演完回到的就是这个安静画面。
+>   **No more spinning**: the base loop is now a seamless 12.8s forward+reverse cut — the cat sits facing you the whole time and never turns its back. Actions now return to this calm scene.
+> - ⌨️ **回车终于稳了**：说话期间持续把焦点按在输入框上；识别一结束就把窗口抢回键盘焦点；再加一层「文档级回车」兜底。
+>   **Enter is reliable now**: focus is held while listening, the window grabs keyboard focus the instant recognition ends, plus a document-level Enter fallback.
+> - 🎤 **不再听自己说话**：安静 1.7 秒自动收麦（以前要干等 30 秒，识别文本一路叠加、连它自己的声音都算进去）；系统那串 `kAFAssistantErrorDomain Code=216` 也不再糊到你脸上。
+>   **No more self-echo**: the mic auto-stops after 1.7s of silence (it used to hang for 30s while recognised text piled up, including the cat's own voice), and the raw system error no longer surfaces.
+> - ⚡ **点动作立刻有反应**：四条片子改成页面加载时就各自预载，演哪个只切透明度——以前是运行时改 `src`，上一条还没播完就被换源中断，表现就是随机「点了没反应」。
+>   **Instant response**: all four clips are preloaded as separate elements and switching is just an opacity cross-fade. Previously the single element swapped `src` at runtime, so a pending play() got aborted — which looked like random "nothing happens".
+> - 🎬 演示视频按新底图重渲染：16.4 秒，7 种语言真人音色旁白 + 冬季风声，结尾演示打哈欠入睡。
+
 > **v4.3 · 刚修的两个真问题 / Two real bugs just fixed**
 > - 🐱 **猫不再听自己说话**：雪团开口念话时会自动暂停麦克风，说完再恢复；识别结果还会跟「它刚念过的话」做一次比对，像回声就丢弃。
 >   **The cat no longer hears itself**: the mic auto-pauses while Xuetuan speaks and resumes after; anything that looks like an echo of its own last line is dropped.

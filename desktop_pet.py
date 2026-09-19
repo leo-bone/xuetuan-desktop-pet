@@ -271,7 +271,17 @@ def set_season(name, h=None):
 # ---------- 猫小睡 / 额外动作 ----------
 # 猫本身长在场景视频里，所以「休息」= 场景窗把主视频换成语打哈欠的片子（不再转圈）；
 # 「更多动作」= 随机挑一条额外片子盖到场景窗上。两种状态都写盘，重启还在。
-_ACTIONS = ["hello", "scenery", "idle"]     # yawn 专给休息用，不进随机池
+_ACTIONS = ["hello", "scenery", "idle"]     # ✨ 随机池；yawn 专给「休息/打哈欠睡觉」用
+# 动作名别名。菜单里「打哈欠睡觉」发下来的是 rest，必须翻成 yawn ——
+# 不加这张表就会被当成未知名字，落到 random.choice 上：点「打哈欠睡觉」
+# 有 2/3 的概率演成「坐着眨眼」，用户看到的就是「有时候不灵」。
+_ACT_ALIAS = {"rest": "yawn", "sleep": "yawn", "yawn": "yawn", "nap": "yawn",
+              "wave": "hello", "hi": "hello", "hello": "hello",
+              "look": "scenery", "scenery": "scenery", "view": "scenery",
+              "idle": "idle", "muse": "idle"}
+# 每条动作在屏幕上停留多久（毫秒）。scenery/yawn 是「播一遍后定格」，
+# 时长要略大于片子本身（3.7s / 5.0s），否则会从半截被掐掉。
+_ACT_MS = {"hello": 5000, "scenery": 6200, "idle": 6000, "yawn": 0}
 
 
 def set_rest(on, h=None):
@@ -285,12 +295,38 @@ def set_rest(on, h=None):
         push_js(h, {"type": "reststate", "on": _nap["on"], "msg": msg})
 
 
+def _act_line(name):
+    """这个动作配哪句台词（按当前语言取）。发呆 = 心理活动，每次随机一句。"""
+    ui = L().get("ui") or {}
+    if name == "hello":
+        return ui.get("actHello")
+    if name == "idle":
+        m = ui.get("musings") or []
+        return random.choice(m) if m else None
+    return None
+
+
 def do_action(h=None, name=None):
-    # name 为空 = ✨ 按钮「随机演一个」；给了就用指定的（动作菜单里点的那一条）
-    if name not in _ACTIONS:
-        name = random.choice(_ACTIONS)
+    """演一个动作。name 为空 = 随机演一个；给了就演指定的。
+
+    名字认不出来时**绝不**悄悄换成随机动作：那样「打哈欠睡觉」会随机演成
+    坐着眨眼，表现成「有时候不灵」。先查别名表，还认不出就当作没指定。"""
+    if name:
+        name = _ACT_ALIAS.get(str(name), str(name))
+        if name not in _ACT_MS:
+            log("未知动作名，什么都不演: " + str(name))
+            return                      # 认不出来就不演 —— 绝不随机顶替（那正是「点了没反应/演错」的病根）
+    else:
+        name = random.choice(_ACTIONS)      # 只有真的没指定名字时才随机
     log("触发额外动作: " + name)
-    _push_scene({"type": "act", "name": name, "ms": 4200})
+    # 片子只有场景窗能放（猫长在场景视频里）
+    _push_scene({"type": "act", "name": name, "ms": _ACT_MS.get(name, 4200)})
+    # 台词气泡只有宠物窗能显示（场景窗的 #say 是隐藏的），所以走 push_js
+    if h is not None:
+        line = _act_line(name)
+        if line:
+            push_js(h, {"type": "bubble", "msg": line,
+                        "delay": 1100 if name == "idle" else 0})
 
 
 # ---------- 多语言 ----------
@@ -322,8 +358,8 @@ LANGS = {
             "hint": "点雪团说话 · 试试「整理桌面」「打开 Safari」「现在几点」或随便聊",
             "ph": "对雪团说点什么…（回车发送）", "thinking": "雪团在想…", "listening": "喵～我在听，说吧",
             "heard": "听到了，按回车发给我（想改也行）",
-            "ttsOn": "好～我用声音陪你说话", "ttsOff": "好，我只打字", "restOn": "好～我先眯一会", "restOff": "醒啦！陪你玩",
-            "acts": {"hello": ["👋", "招手问候"], "scenery": ["🏔", "看风景"],
+            "ttsOn": "好～我用声音陪你说话", "ttsOff": "好，我只打字", "restOn": "好～我先眯一会", "restOff": "醒啦！陪你玩", "actHello": "喵～你好呀！我一直在这儿呢", "musings": ["……这场雪要是一直下，我就一直看下去", "一个很严肃的问题：小鱼干到底算不算正餐", "外面那盏灯今天好像亮得早了点", "刚才那个哈欠，其实我是装的"], "micFail": "没听清，再说一次？",
+            "acts": {"hello": ["👋", "招手问候"], "scenery": ["🌄", "看风景"],
                      "idle": ["😌", "发个呆"], "rest": ["🥱", "打哈欠睡觉"]},
             "seasonSet": "换成{name}啦～", "langSet": "好，我们换成{name}聊～",
             "timeNow": "现在 {t}，记得起来活动一下～",
@@ -383,8 +419,8 @@ LANGS = {
             "hint": "Click the cat · try \"tidy desk\", \"open Safari\", \"what time\" — or just chat",
             "ph": "Say something to Xuetuan… (Enter to send)", "thinking": "Thinking…",
             "listening": "Meow~ I'm listening", "heard": "Got it — press Enter to send (or edit it first)",
-            "ttsOn": "Okay, I'll talk out loud", "ttsOff": "Okay, typing only", "restOn": "Okay, I'll nap a bit", "restOff": "Awake! Back to play",
-            "acts": {"hello": ["👋", "Wave hello"], "scenery": ["🏔", "Watch the view"],
+            "ttsOn": "Okay, I'll talk out loud", "ttsOff": "Okay, typing only", "restOn": "Okay, I'll nap a bit", "restOff": "Awake! Back to play", "actHello": "Meow~ hello there! I'm right here", "musings": ["...if the snow keeps falling, I'm staying right here", "Serious question: do fish snacks count as a meal?", "That lamp outside lit up a little early tonight", "That yawn earlier? Completely staged"], "micFail": "Didn't catch that — say it again?",
+            "acts": {"hello": ["👋", "Wave hello"], "scenery": ["🌄", "Watch the view"],
                      "idle": ["😌", "Just chill"], "rest": ["🥱", "Yawn & sleep"]},
             "seasonSet": "Switched to {name}~", "langSet": "Sure, let's talk in {name}~",
             "timeNow": "It's {t} — time to stretch a little",
@@ -445,8 +481,8 @@ LANGS = {
             "hint": "Toca al gato · prueba «ordenar escritorio», «abre Safari», «qué hora» o charla",
             "ph": "Dile algo a Xuetuan… (Enter para enviar)", "thinking": "Pensando…",
             "listening": "Miau~ te escucho", "heard": "Listo — pulsa Enter para enviar (o edítalo)",
-            "ttsOn": "Vale, te hablo en voz alta", "ttsOff": "Vale, solo escribo", "restOn": "Vale, echa una siesta", "restOff": "¡Despierta! Volvamos a jugar",
-            "acts": {"hello": ["👋", "Saludar"], "scenery": ["🏔", "Ver el paisaje"],
+            "ttsOn": "Vale, te hablo en voz alta", "ttsOff": "Vale, solo escribo", "restOn": "Vale, echa una siesta", "restOff": "¡Despierta! Volvamos a jugar", "actHello": "¡Miau~ hola! Aquí estoy", "musings": ["...si sigue nevando, me quedo mirando", "Pregunta seria: ¿las golosinas de pescado cuentan como comida?", "Esa lámpara de fuera se encendió antes hoy", "Ese bostezo de antes lo hice a propósito"], "micFail": "No te entendí, ¿lo repites?",
+            "acts": {"hello": ["👋", "Saludar"], "scenery": ["🌄", "Ver el paisaje"],
                      "idle": ["😌", "Relajarse"], "rest": ["🥱", "Bostezar y dormir"]},
             "seasonSet": "Cambiado a {name}~", "langSet": "Claro, hablemos en {name}~",
             "timeNow": "Son las {t} — muévete un poco",
@@ -506,8 +542,8 @@ LANGS = {
             "hint": "Clique sur le chat · essaie « ranger le bureau », « ouvre Safari », « quelle heure »",
             "ph": "Dis quelque chose à Xuetuan… (Entrée pour envoyer)", "thinking": "Je réfléchis…",
             "listening": "Miaou~ je t'écoute", "heard": "Reçu — Entrée pour envoyer (ou corrige)",
-            "ttsOn": "D'accord, je te parle à voix haute", "ttsOff": "D'accord, j'écris seulement", "restOn": "D'accord, je fais la sieste", "restOff": "Réveillé ! On joue",
-            "acts": {"hello": ["👋", "Dire bonjour"], "scenery": ["🏔", "Voir le paysage"],
+            "ttsOn": "D'accord, je te parle à voix haute", "ttsOff": "D'accord, j'écris seulement", "restOn": "D'accord, je fais la sieste", "restOff": "Réveillé ! On joue", "actHello": "Miaou~ bonjour ! Je suis là", "musings": ["...s'il continue de neiger, je reste ici", "Question sérieuse : les friandises au poisson, ça compte comme un repas ?", "Cette lampe dehors s'est allumée un peu tôt ce soir", "Ce bâillement tout à l'heure ? C'était du cinéma"], "micFail": "Je n'ai pas compris, tu répètes ?",
+            "acts": {"hello": ["👋", "Dire bonjour"], "scenery": ["🌄", "Voir le paysage"],
                      "idle": ["😌", "Se détendre"], "rest": ["🥱", "Bâiller et dormir"]},
             "seasonSet": "Passé à {name}~", "langSet": "D'accord, parlons en {name}~",
             "timeNow": "Il est {t} — bouge un peu",
@@ -567,8 +603,8 @@ LANGS = {
             "hint": "Clique no gato · tente «organizar a mesa», «abra o Safari», «que horas»",
             "ph": "Diga algo ao Xuetuan… (Enter envia)", "thinking": "Pensando…",
             "listening": "Miau~ estou ouvindo", "heard": "Pronto — Enter envia (ou edite antes)",
-            "ttsOn": "Ok, vou falar em voz alta", "ttsOff": "Ok, só escrevo", "restOn": "Ok, vou tirar uma soneca", "restOff": "Acordei! Bora brincar",
-            "acts": {"hello": ["👋", "Dar oi"], "scenery": ["🏔", "Ver a paisagem"],
+            "ttsOn": "Ok, vou falar em voz alta", "ttsOff": "Ok, só escrevo", "restOn": "Ok, vou tirar uma soneca", "restOff": "Acordei! Bora brincar", "actHello": "Miau~ olá! Estou aqui", "musings": ["...se continuar nevando, fico aqui olhando", "Pergunta séria: petisco de peixe conta como refeição?", "Aquela lâmpada lá fora acendeu mais cedo hoje", "Aquele bocejo de antes? Foi encenação"], "micFail": "Não entendi, repete?",
+            "acts": {"hello": ["👋", "Dar oi"], "scenery": ["🌄", "Ver a paisagem"],
                      "idle": ["😌", "Relaxar"], "rest": ["🥱", "Bocejar e dormir"]},
             "seasonSet": "Mudou para {name}~", "langSet": "Claro, vamos falar em {name}~",
             "timeNow": "São {t} — levante-se um pouco",
@@ -627,8 +663,8 @@ LANGS = {
             "hint": "猫をクリック · 「デスクトップを整理」「Safariを開いて」「何時？」と話しかけてね",
             "ph": "雪団に話しかけて…（Enterで送信）", "thinking": "考え中…", "listening": "にゃあ～聞いてるよ",
             "heard": "聞けたよ — Enterで送信（書き直してもOK）",
-            "ttsOn": "いいよ、声で話すね", "ttsOff": "わかった、文字だけで話すね", "restOn": "わかった、ちょっと寝るね", "restOff": "起きたよ！遊ぼう",
-            "acts": {"hello": ["👋", "ごあいさつ"], "scenery": ["🏔", "景色を眺める"],
+            "ttsOn": "いいよ、声で話すね", "ttsOff": "わかった、文字だけで話すね", "restOn": "わかった、ちょっと寝るね", "restOff": "起きたよ！遊ぼう", "actHello": "にゃ〜こんにちは！ずっとここにいるよ", "musings": ["……この雪がずっと降るなら、ずっと見ていよう", "真剣な悩み：お魚のおやつは食事に入るのかな", "外の灯り、今日はちょっと早いね", "さっきのあくび、実はわざとだよ"], "micFail": "聞き取れなかった、もう一回言って？",
+            "acts": {"hello": ["👋", "ごあいさつ"], "scenery": ["🌄", "景色を眺める"],
                      "idle": ["😌", "ぼーっとする"], "rest": ["🥱", "あくびして寝る"]},
             "seasonSet": "{name}に変えたよ～", "langSet": "いいよ、{name}で話そう～",
             "timeNow": "今 {t} だよ。少し体を動かしてね",
@@ -686,8 +722,8 @@ LANGS = {
             "hint": "고양이를 클릭 · 「바탕화면 정리」「Safari 열어」「몇 시야?」 또는 아무 말이나",
             "ph": "설단에게 말해보세요… (Enter 전송)", "thinking": "생각 중…", "listening": "야옹~ 듣고 있어",
             "heard": "들었어 — Enter로 보내줘 (고쳐도 돼)",
-            "ttsOn": "좋아, 소리로 말할게", "ttsOff": "좋아, 글만 쓸게", "restOn": "알았어, 잠깐 잘게", "restOff": "깼어! 같이 놀자",
-            "acts": {"hello": ["👋", "인사하기"], "scenery": ["🏔", "경치 보기"],
+            "ttsOn": "좋아, 소리로 말할게", "ttsOff": "좋아, 글만 쓸게", "restOn": "알았어, 잠깐 잘게", "restOff": "깼어! 같이 놀자", "actHello": "야옹~ 안녕! 계속 여기 있었어", "musings": ["……이 눈이 계속 내리면 계속 보고 있을래", "진지한 고민: 멸치 간식도 한 끼로 쳐주나", "밖에 저 불, 오늘은 좀 일찍 켜졌네", "아까 그 하품, 사실 연기였어"], "micFail": "못 들었어, 다시 말해줄래?",
+            "acts": {"hello": ["👋", "인사하기"], "scenery": ["🌄", "경치 보기"],
                      "idle": ["😌", "멍때리기"], "rest": ["🥱", "하품하고 자기"]},
             "seasonSet": "{name}(으)로 바꿨어~", "langSet": "좋아, {name}로 이야기하자~",
             "timeNow": "지금 {t}야. 잠깐 몸을 움직여 줘",
@@ -947,6 +983,16 @@ class _JSBridge(NSObject):
         self = objc.super(_JSBridge, self).init()
         self.web = web
         return self
+    def focusMain_(self, arg):
+        # 抢回键盘焦点必须走主线程（AppKit 不是线程安全的）
+        try:
+            NSApp.activateIgnoringOtherApps_(True)
+            h = _KEEP.get("handler")
+            if getattr(h, "win", None) is not None:
+                h.win.makeKeyAndOrderFront_(None)
+        except Exception as e:
+            log("focusMain 失败: " + repr(e))
+
     def runJS_(self, js):
         # 注意：回调必须是普通函数/闭包，不能写成类方法——类方法名会被 pyobjc
         # 当 selector 解析（xtJsDone_ 只带 1 个冒号，2 个参数就抛 BadPrototypeError）。
@@ -988,6 +1034,19 @@ def push_js(h, obj):
                 speak(t)
     except Exception as e:
         log("TTS 触发异常: " + repr(e))
+
+
+def _focus_main():
+    """把宠物窗顶到最前并拿回键盘焦点（可跨线程调用）。
+    说完一句话之后一定要做一次：否则回车会被送给别的 App，看起来就是「回车不灵」。"""
+    try:
+        br = _KEEP.get("bridge")
+        if br is not None:
+            br.performSelectorOnMainThread_withObject_waitUntilDone_("focusMain:", None, False)
+        else:
+            focus_app(_KEEP.get("handler"))
+    except Exception as e:
+        log("_focus_main 异常: " + repr(e))
 
 
 def focus_app(h):
@@ -1644,6 +1703,7 @@ def do_joke(h):
 # ---------- 麦克风（SFSpeechRecognizer + AVAudioEngine，框架缺失则降级） ----------
 _mic = {}
 _mic_wanted = [False]      # 用户是不是开着听（雪团开口时会被临时捂住，说完自动恢复）
+_mic_closing = [False]     # 正在主动收麦：这期间系统回的错误（216/203 取消）不是故障，别报给用户
 
 
 def _mic_permission():
@@ -1805,6 +1865,7 @@ def _open_sysprefs(kind):
 
 
 def _begin_mic(h, quiet=False):
+    _mic_closing[0] = False       # 新一轮聆听开始，清掉上轮的「正在收麦」
     try:
         log("_begin_mic 开始")
         from Speech import SFSpeechRecognizer, SFSpeechAudioBufferRecognitionRequest
@@ -1861,14 +1922,19 @@ def _begin_mic(h, quiet=False):
                 if err is not None:
                     es = str(err)
                     log("识别回调 err=%s" % es[:200])
+                    # 我们自己 cancel（收麦 / 雪团开口）时，系统回的就是 216 / 203 / cancel 这类「已取消」，
+                    # 那不是故障。以前这里会弹「识别失败：Error Domain=kAFAssistantErrorDomain Code=216」——
+                    # 一串英文报错糊在脸上，用户还会把它当提问发出去。
+                    if (_mic_closing[0] or ("216" in es) or ("203" in es)
+                            or ("cancel" in es.lower())):
+                        return
                     if ("1110" in es or "asset" in es.lower()
                             or "not available" in es.lower() or "209" in es):
                         push_js(h, {"type": "micstate", "on": False,
                                     "msg": T("micAsset", lang=L()["name"])})
                         _open_sysprefs("dict")
                     else:
-                        push_js(h, {"type": "micstate", "on": False,
-                                    "msg": "识别失败：" + es[:70]})
+                        push_js(h, {"type": "micstate", "on": False, "msg": T("micFail")})
                     stop_mic(h)
                     return
                 if result is None:
@@ -1881,10 +1947,17 @@ def _begin_mic(h, quiet=False):
                     return
                 if result.isFinal():
                     log("识别完成: %s" % t)
+                    _mic["text"] = t
                     push_js(h, {"type": "transcript", "text": t, "auto": True})
+                    _focus_main()               # 说完把窗口抢回来，回车才发得出去
                     stop_mic(h)
                 else:
-                    # 部分结果：实时填进输入框，让人看到在听
+                    # 部分结果：实时填进输入框，让人看到在听。
+                    # 记下「最后一次真的变了」的时间 —— 识别器会把同一句反复推，
+                    # 只有文本变了才算还在说话（静音判定就靠它）。
+                    if t != (_mic.get("text") or ""):
+                        _mic["text"] = t
+                        _mic["t_change"] = time.time()
                     push_js(h, {"type": "transcript", "text": t, "auto": False})
             except Exception as ce:
                 log("识别回调异常: " + repr(ce))
@@ -1897,7 +1970,10 @@ def _begin_mic(h, quiet=False):
         _mic_wanted[0] = True
         push_js(h, {"type": "micstate", "on": True,
                     "msg": None if quiet else T("micOk")})
-        tm = threading.Timer(30.0, lambda: _mic_timeout(h))
+        _mic["t_start"] = time.time()
+        _mic["t_change"] = None
+        _mic["text"] = ""
+        tm = threading.Timer(0.4, lambda: _mic_watch(h))
         tm.daemon = True
         tm.start()
         _mic["timer"] = tm
@@ -1934,6 +2010,7 @@ def _mic_hold():
     人一按回车就把「雪团刚才说过的话」当成提问发回去，回答于是越来越乱。"""
     if not _mic.get("engine"):
         return False
+    _mic_closing[0] = True            # 这次 cancel 引起的错误同样不是故障
     try:
         if _mic.get("task") is not None:
             _mic["task"].cancel()
@@ -1963,15 +2040,34 @@ def _mic_hold():
     return True
 
 
-def _mic_timeout(h):
-    """兜底：最多听 30 秒就自己关掉。
-    实测 SFSpeechRecognizer 有时一直只吐中间结果、不给最终结果，
-    麦克风就永远停不下来，识别文本一路往上叠加（雪团自己的声音也会被叠进去），
+_MIC_SILENCE = 1.7      # 安静这么久就当这句说完了
+_MIC_MAX = 30.0         # 硬上限，兜底
+
+
+def _mic_watch(h):
+    """每 0.4s 巡检一次：安静够久就自动收麦（并把最后一版文本当最终结果推下去，
+    界面上出现「按回车发给我」），最多听 30 秒。
+
+    实测 SFSpeechRecognizer 常常一直只吐中间结果、不给最终结果：
+    麦克风于是永远停不下来，识别文本一路往上叠加（连雪团自己的声音都被叠进去），
     人一按回车发出去的就是这坨越来越长的脏句子 —— 回答于是越来越乱。"""
     if not _mic.get("engine"):
+        return                          # 已经关了
+    now = time.time()
+    txt = _mic.get("text") or ""
+    last = _mic.get("t_change") or _mic.get("t_start") or now
+    if txt and (now - last) >= _MIC_SILENCE:
+        log("安静 %.1fs（%d 字）→ 自动收麦" % (now - last, len(txt)))
+        stop_mic(h, final_text=txt)
         return
-    log("麦克风超时自动关闭（30s）")
-    stop_mic(h)
+    if (now - (_mic.get("t_start") or now)) >= _MIC_MAX:
+        log("麦克风超时自动关闭（%.0fs）" % _MIC_MAX)
+        stop_mic(h, final_text=txt or None)
+        return
+    tm = threading.Timer(0.4, lambda: _mic_watch(h))
+    tm.daemon = True
+    tm.start()
+    _mic["timer"] = tm
 
 
 def _mic_release():
@@ -1985,7 +2081,11 @@ def _mic_release():
     _begin_mic(h, quiet=True)
 
 
-def stop_mic(h):
+def stop_mic(h, final_text=None):
+    """收麦。final_text 非空时把它当「最终识别结果」推下去 ——
+    于是界面上出现「按回车发给我」，并且把窗口抢回键盘焦点
+    （窗口不是 key window 时，按回车会被送给别的 App，表现就是「回车不灵」）。"""
+    _mic_closing[0] = True            # 先立旗：随后系统回的错误都是我们自己取消引起的
     try:
         tm = _mic.get("timer")
         if tm is not None:
@@ -2010,6 +2110,9 @@ def stop_mic(h):
         pass
     _mic.clear()
     _mic_wanted[0] = False
+    if final_text:
+        push_js(h, {"type": "transcript", "text": final_text, "auto": True})
+        _focus_main()
     push_js(h, {"type": "micstate", "on": False, "msg": T("micStop")})
 
 

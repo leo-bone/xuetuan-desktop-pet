@@ -109,6 +109,8 @@
     box-shadow:0 10px 28px rgba(0,0,0,.45)}
   #actMenu button:hover{background:rgba(45,66,105,.96);color:#fff}
   #actMenu button em{font-style:normal;font-size:15px;line-height:1}
+  /* 正在演的那一条高亮，不用猜点了有没有生效 */
+  #actMenu button.playing{background:linear-gradient(135deg,#9fd8ff,#bda6ff);color:#0a0f1a;border-color:transparent}
 
   /* 快捷指令：指令栏上方一排小胶囊，点一下就发（省打字） */
   #chips{position:fixed;left:4%;bottom:172px;z-index:6;display:flex;gap:8px;flex-wrap:wrap;
@@ -145,8 +147,16 @@
 
   /* ---- 动作层 / 休息层（只在场景窗显示）----
      猫本身长在场景视频里，所以要让它「别转圈、改打哈欠」就换一条片子盖上去。 */
-  #vAct{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
+  /* 每条动作片各自一个 video 元素（页面加载即预载），演哪个只是切透明度。
+     以前是单元素运行时改 src —— 上一条的 play() 还没落地就被换源中断，
+     表现就是「点了没反应 / 时灵时不灵」，而且是随机的。 */
+  .actLayer{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;
     opacity:0;transition:opacity .8s ease;pointer-events:none;z-index:2}
+  /* 打招呼：猫旁边冒一只挥手的小爪（现有素材里没有「招手」这条片子） */
+  #pawWave{position:fixed;left:31.5%;top:35.5%;z-index:5;font-size:54px;line-height:1;
+    opacity:0;pointer-events:none;transition:opacity .3s ease;transform-origin:72% 88%}
+  html.hello #pawWave{opacity:1;animation:pawWave 1.05s ease-in-out infinite}
+  @keyframes pawWave{0%,100%{transform:rotate(-15deg) scale(1)}50%{transform:rotate(17deg) scale(1.07)}}
   #sleepVeil{position:fixed;inset:0;z-index:3;pointer-events:none;opacity:0;transition:opacity 1.3s ease;
     background:radial-gradient(120% 95% at 34% 46%, rgba(6,10,24,.04) 0%, rgba(3,6,16,.66) 100%)}
   html.rest #sleepVeil{opacity:1}
@@ -169,7 +179,7 @@
   /* 场景模式下隐藏一切 UI；宠物模式下隐藏视频 */
   html.scene #petZone,html.scene #say,html.scene #hint,html.scene #cmd,html.scene #plan,
   html.scene #chips,html.scene #busy,html.scene #actMenu{display:none}
-  html.pet #vA,html.pet #vB,html.pet #vAct,html.pet #poster,html.pet #veil,
+  html.pet #vA,html.pet #vB,html.pet .actLayer,html.pet #pawWave,html.pet #poster,html.pet #veil,
   html.pet #sleepVeil,html.pet #zzz,
   html.pet #bgA,html.pet #bgB,html.pet #particles{display:none}
   /* 宠物窗必须真透明，否则左条会变成一块黑 */
@@ -185,7 +195,7 @@
   <div id="particles"></div>
   <div id="veil"></div>
   <!-- 动作层 / 休息层（只在场景窗显示；猫本身长在场景视频里，换片子就「换了猫的动作」） -->
-  <video id="vAct" muted loop playsinline preload="auto"></video>
+  <div id="pawWave">👋</div>
   <div id="sleepVeil"></div>
   <div id="zzz"><b>z</b><b>z</b><b>z</b></div>
 
@@ -237,7 +247,7 @@
 
   // ---------- 场景模式：冬季走视频，其余季节走静态图 + 粒子 ----------
   var vA, vB, bgA, bgB, partsEl;
-  var vAct = null, playAct = function(){}, setRest = function(){};   // 动作层（只有场景窗会赋值）
+  var playAct = function(){}, setRest = function(){};   // 动作层（只有场景窗会赋值）
   var videoOn = true, seasonNow = "";
 
   var SEASON_IMG = {
@@ -360,65 +370,91 @@
     requestAnimationFrame(tick);
 
     // ---- 动作层：猫的额外动作 / 休息打哈欠（盖在场景视频上）----
-    // 猫本身长在场景视频里，想让它「别转圈、改成打哈欠睡觉」只能盖一条新片子上去。
-    vAct = document.getElementById("vAct");
-    var actTimer = null;
+    // 每条片子各建一个 video 元素、页面加载就预载好，演哪个只是切透明度。
+    // 以前是单元素运行时改 src：上一条的 play() 还没落地就被换源中断，
+    // 表现就是「点了没反应 / 时灵时不灵」——而且是随机的。
+    var actPool = {}, actNow = null, actTimer = null;
+    var ACT_SPEC = {
+      hello:   {once:false, hold:5000, hello:true},   // 坐着眨眼 + 旁边冒挥手爪
+      scenery: {once:true,  hold:6200},               // 播一遍 → 定格「转过头看窗外」
+      idle:    {once:false, hold:6000},               // 坐着发呆（心理活动由原生下发）
+      yawn:    {once:true,  hold:0}                   // 一遍 → 定格 = 睡着，不再动
+    };
+    ["hello", "scenery", "idle", "yawn"].forEach(function(n){
+      var v = document.createElement("video");
+      v.className = "actLayer";
+      v.muted = true;
+      v.setAttribute("playsinline", "");
+      v.setAttribute("preload", "auto");
+      v.setAttribute("data-act", n);
+      v.loop = true;
+      v.src = "assets/act_" + n + ".mp4";
+      document.body.appendChild(v);
+      actPool[n] = v;
+    });
 
-    function loadAct(name){
-      if(!vAct) return;
-      if(vAct.getAttribute("data-act") === name) return;   // 同一条片子不必重载
-      vAct.setAttribute("data-act", name);
-      vAct.src = "assets/act_" + name + ".mp4";
+    function actHide(v){
+      if(!v) return;
+      v.style.opacity = 0;
+      try{ v.pause(); }catch(e){}
     }
 
-    // 打哈欠：只播一遍，播完停在最后一帧 —— 这才是「打哈欠，然后睡着，不动了」。
-    // 之前是循环播打哈欠，严格说不算「别动」，这里改成一遍 + 定格。
-    function replayYawn(skipIfAlreadyRested){
-      if(!vAct) return;
-      var now = vAct.getAttribute("data-act");
-      if(skipIfAlreadyRested && now === "yawn" && (vAct.ended || !vAct.paused)){
-        vAct.style.opacity = 1; return;                    // 已经在睡 / 正在打，就别重来一遍
-      }
-      loadAct("yawn");
-      vAct.loop = false;
-      try{ vAct.currentTime = 0; }catch(e){}
-      vAct.style.opacity = 1;
-      var pr = vAct.play(); if(pr && pr.catch) pr.catch(function(){});
+    // 演某一条：只切透明度、不改 src —— 没有加载竞争，点了就有反应
+    function actPlay(name, once){
+      var v = actPool[name];
+      if(!v) return null;
+      for(var k in actPool){ if(actPool[k] !== v) actHide(actPool[k]); }
+      v.loop = !once;
+      try{ v.currentTime = 0; }catch(e){}
+      v.style.opacity = 1;
+      var pr = v.play(); if(pr && pr.catch) pr.catch(function(){});
+      return v;
+    }
+
+    function actStopAll(){
+      for(var k in actPool){ actHide(actPool[k]); }
+      actNow = null;
     }
 
     playAct = function(name, ms){
-      if(!vAct) return;
+      if(!actPool[name]) return;
       if(actTimer){ clearTimeout(actTimer); actTimer = null; }
-      loadAct(name);
-      vAct.loop = !ms;            // 没给时长就循环（打招呼 / 看风景 / 发呆）
-      try{ vAct.currentTime = 0; }catch(e){}
-      vAct.style.opacity = 1;
-      var pr = vAct.play(); if(pr && pr.catch) pr.catch(function(){});
-      if(ms){
-        actTimer = setTimeout(function(){
-          actTimer = null;
-          if(document.documentElement.classList.contains("rest")){
-            replayYawn();         // 休息中：动作演完接着打哈欠睡觉，不留空帧
-          } else {
-            vAct.style.opacity = 0;
-            try{ vAct.pause(); }catch(e){}
-            try{ vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
-          }
-        }, ms);
+      var spec = ACT_SPEC[name] || {once:true, hold:4200};
+      document.documentElement.classList.toggle("hello", !!spec.hello);
+      actNow = actPlay(name, !!spec.once);
+      var hold = (ms != null && ms > 0) ? ms : spec.hold;
+      if(hold){
+        actTimer = setTimeout(function(){ actTimer = null; actFinish(); }, hold);
       }
     };
 
+    // 动作演完：休息中就接着打哈欠睡，否则把主场景接回来
+    function actFinish(){
+      document.documentElement.classList.remove("hello");
+      if(actTimer){ clearTimeout(actTimer); actTimer = null; }
+      if(document.documentElement.classList.contains("rest")){
+        actNow = actPlay("yawn", true);
+        return;
+      }
+      actStopAll();
+      try{ vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+    }
+
     setRest = function(on){
       document.documentElement.classList.toggle("rest", !!on);
+      document.documentElement.classList.remove("hello");
       if(actTimer){ clearTimeout(actTimer); actTimer = null; }
-      if(!vAct) return;
-      if(on){
-        try{ vA.pause(); vB.pause(); }catch(e){}   // 主场景停住：从此不再转圈
-        replayYawn(true);
-      } else {
-        vAct.style.opacity = 0;
-        try{ vAct.pause(); vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+      if(!on){
+        actStopAll();
+        try{ vA.play().catch(function(){}); vB.play().catch(function(){}); }catch(e){}
+        return;
       }
+      try{ vA.pause(); vB.pause(); }catch(e){}     // 主场景停住：从此不再转圈
+      var y = actPool.yawn;
+      if(!y) return;
+      // 已经打完了、正睡在最后一帧 → 保持定格（别每次同步状态都重打一遍哈欠）
+      if(actNow === y && y.ended){ y.style.opacity = 1; return; }
+      actNow = actPlay("yawn", true);
     };
     // 先按冬季起（等原生把真实季节推过来再切）
     applySeason("winter");
@@ -472,7 +508,12 @@
       b.querySelector("span").textContent = a[1] || "";
       b.addEventListener("click", function(){
         closeActMenu();
-        if(k === "rest"){ setRestUI(!restOn); return; }   // 复用 😴 的逻辑
+        // 点「打哈欠睡觉」就是去睡，不做开关 —— 开关是 😴。
+        // 原先这里是 !restOn：猫已经睡着时再点一下反而把它弄醒了，很反直觉。
+        if(k === "rest"){ setRestUI(true); return; }
+        var pb = actMenuEl.querySelector("button.playing");
+        if(pb) pb.classList.remove("playing");
+        b.classList.add("playing");
         post({type:"act", name: k});
       });
       actMenuEl.appendChild(b);
@@ -565,6 +606,17 @@
     send();
   });
 
+  // 兜底：焦点万一不在输入框上（识别过程中被抢走、或点到别处），
+  // 只要指令栏开着，回车照样发得出去 —— 以前这里会静默丢掉，「回车不灵」就是它。
+  document.addEventListener("keydown", function(e){
+    if(e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+    if(e.target === cmdin) return;                 // 输入框自己有处理器，别发两次
+    if(e.target && e.target.tagName === "BUTTON") return;
+    if(!cmd.classList.contains("show")) return;
+    e.preventDefault();
+    send();
+  });
+
   // 🌐 一键换语言（轮播 7 种；完整列表在菜单栏猫头里）
   var langBtn = document.getElementById("lang");
   if(langBtn) langBtn.addEventListener("click", function(){ post({type:"langnext"}); });
@@ -584,6 +636,10 @@
   function setRestUI(on){
     restOn = !!on;
     if(restBtn) restBtn.classList.toggle("on", restOn);
+    if(!restOn && actMenuEl){
+      var pb = actMenuEl.querySelector("button.playing");
+      if(pb) pb.classList.remove("playing");
+    }
     post({type:"rest", on: restOn});
     bubble(restOn ? (UI.restOn || "好～我先眯一会，不打扰你") : (UI.restOff || "醒啦！陪你玩"));
   }
@@ -644,6 +700,9 @@
   cmdin.addEventListener("input", function(){ micWrote = false; });
   document.getElementById("mic").addEventListener("click", function(){
     if(micOn){ post({type:"micstop"}); return; }
+    // 先把窗口顶到最前、抢回键盘焦点。否则说完话按回车可能完全没反应
+    //（窗口不是 key window 时，按键会送给别的 App）。
+    post({type:"focus"});
     post({type:"mic"});
   });
 
@@ -700,6 +759,13 @@
       plan.classList.add("show");
     }
     else if(o.type === "progress"){ bubble(o.msg); }
+    // 原生下发的台词：招手问候、发呆时的「心理活动」
+    else if(o.type === "bubble"){
+      var bmsg = o.msg || o.text || "";
+      if(!bmsg) return;
+      if(o.delay){ setTimeout(function(){ bubble(bmsg, o.ms || 0); }, o.delay); }
+      else bubble(bmsg, o.ms || 0);
+    }
     else if(o.type === "done"){ bubble(o.msg); }
     else if(o.type === "open"){ bubble(o.msg); }
     else if(o.type === "time"){ bubble(o.msg); }
@@ -729,7 +795,8 @@
 
       cmd.classList.add("show");
       hint.classList.add("gone");
-      if(justOpened || o.auto){ try{ cmdin.focus(); }catch(e){} }
+      // 说话期间持续把焦点按在输入框上：中间一停顿焦点跑了，回车就发不出去
+      if(justOpened || o.auto || micOn){ try{ cmdin.focus(); }catch(e){} }
       if(o.auto) bubble(UI.heard || "听到了，按回车发给我（想改也行）");
     }
     else if(o.type === "ttsstate"){
